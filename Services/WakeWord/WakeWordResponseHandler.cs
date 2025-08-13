@@ -21,9 +21,9 @@ public class WakeWordResponseHandler
     private const int DiscordFrameSize = DiscordSampleRate / 1000 * FrameLengthMs;
     private const int AudioBufferDurationMs = 1000;
     private const int MaxBufferedFrames = AudioBufferDurationMs / FrameLengthMs;
-    private const int SilenceDetectionMs = 2000;
+    private const int SilenceDetectionMs = 1500; // Reduced from 2000ms to 1.5s for faster response
     private const int SilenceFrameThreshold = SilenceDetectionMs / FrameLengthMs;
-    private const short SilenceThreshold = 500;
+    private const short SilenceThreshold = 400; // Reduced from 500 to be more sensitive to low audio
 
     private readonly ILogger<WakeWordResponseHandler> _logger;
     private readonly BotConfiguration _discordConfiguration;
@@ -35,6 +35,7 @@ public class WakeWordResponseHandler
     private readonly ConcurrentDictionary<ulong, UserTranscriptionSession> _activeSessions = new();
     private readonly ConcurrentDictionary<ulong, Queue<byte[]>> _audioBuffers = new();
     private readonly ConcurrentDictionary<ulong, int> _silenceFrameCounts = new();
+    private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _sessionTimeoutCancellations = new();
     private readonly IOpusDecoder _opusDecoder;
 
     public WakeWordResponseHandler(
@@ -89,7 +90,16 @@ public class WakeWordResponseHandler
 
                 if (DetectSilenceInAudioFrame(pcmAudioData, userId))
                 {
-                    _ = Task.Run(async () => await CompleteTranscriptionSessionAsync(userId));
+                    _logger.LogInformation("Silence detected for user {UserId}, completing transcription session", userId);
+                    
+                    // Cancel the timeout since we're completing due to silence
+                    if (_sessionTimeoutCancellations.TryRemove(userId, out var cancellationSource))
+                    {
+                        cancellationSource.Cancel();
+                        cancellationSource.Dispose();
+                    }
+                    
+                    _ = Task.Run(async () => await CompleteTranscriptionSessionAsync(userId, "silence"));
                 }
                 else
                 {
@@ -113,7 +123,11 @@ public class WakeWordResponseHandler
         _activeSessions[userId] = session;
         _silenceFrameCounts[userId] = 0;
 
-        await ScheduleSessionTimeoutAsync(userId);
+        // Create cancellation token source for this session's timeout
+        var timeoutCancellation = new CancellationTokenSource();
+        _sessionTimeoutCancellations[userId] = timeoutCancellation;
+
+        await ScheduleSessionTimeoutAsync(userId, timeoutCancellation.Token);
         _logger.LogInformation("Started fresh transcription session for user {UserId}", userId);
     }
 
@@ -145,18 +159,26 @@ public class WakeWordResponseHandler
         };
     }
 
-    private Task ScheduleSessionTimeoutAsync(ulong userId)
+    private Task ScheduleSessionTimeoutAsync(ulong userId, CancellationToken cancellationToken)
     {
         _ = Task.Run(async () =>
         {
-            await Task.Delay(TranscriptionTimeoutMs);
-            await CompleteTranscriptionSessionAsync(userId);
-        });
+            try
+            {
+                await Task.Delay(TranscriptionTimeoutMs, cancellationToken);
+                _logger.LogInformation("Transcription session timeout reached for user {UserId}", userId);
+                await CompleteTranscriptionSessionAsync(userId, "timeout");
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogDebug("Transcription session timeout cancelled for user {UserId} (likely due to silence detection)", userId);
+            }
+        }, cancellationToken);
         
         return Task.CompletedTask;
     }
 
-    private async Task CompleteTranscriptionSessionAsync(ulong userId)
+    private async Task CompleteTranscriptionSessionAsync(ulong userId, string reason = "unknown")
     {
         if (!_activeSessions.TryRemove(userId, out var session))
         {
@@ -165,9 +187,16 @@ public class WakeWordResponseHandler
 
         try
         {
-            _logger.LogInformation("Ending transcription session for user {UserId}", userId);
+            _logger.LogInformation("Ending transcription session for user {UserId} (reason: {Reason})", userId, reason);
             
             _silenceFrameCounts.TryRemove(userId, out _);
+            
+            // Clean up cancellation token if it exists
+            if (_sessionTimeoutCancellations.TryRemove(userId, out var cancellationSource))
+            {
+                cancellationSource.Cancel();
+                cancellationSource.Dispose();
+            }
 
             if (session.AudioData.Count > 0)
             {
@@ -267,7 +296,25 @@ public class WakeWordResponseHandler
             var currentSilenceFrames = _silenceFrameCounts.GetOrAdd(userId, 0) + 1;
             _silenceFrameCounts[userId] = currentSilenceFrames;
             
-            return currentSilenceFrames >= SilenceFrameThreshold;
+            var silenceDurationMs = currentSilenceFrames * FrameLengthMs;
+            _logger.LogDebug("Silence detected for user {UserId}: frame {CurrentFrame}/{ThresholdFrames} ({SilenceDurationMs}ms/{ThresholdMs}ms), audio level: {AudioLevel}",
+                userId, currentSilenceFrames, SilenceFrameThreshold, silenceDurationMs, SilenceDetectionMs, audioLevel);
+            
+            if (currentSilenceFrames >= SilenceFrameThreshold)
+            {
+                _logger.LogInformation("Silence threshold reached for user {UserId} after {SilenceDurationMs}ms", userId, silenceDurationMs);
+                return true;
+            }
+        }
+        else
+        {
+            var previousFrames = _silenceFrameCounts.GetValueOrDefault(userId, 0);
+            if (previousFrames > 0)
+            {
+                _logger.LogDebug("Audio activity detected for user {UserId}, resetting silence counter (was {PreviousFrames} frames), audio level: {AudioLevel}",
+                    userId, previousFrames, audioLevel);
+            }
+            _silenceFrameCounts[userId] = 0;
         }
         
         return false;
