@@ -25,6 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Orpheus.Tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="Config/appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

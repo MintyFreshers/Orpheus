@@ -5,6 +5,8 @@ VisualStudioVersion = 17.12.35527.113 d17.12
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orpheus", "Orpheus.csproj", "{F597AB54-344D-412B-9E9B-7748E2709646}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orpheus.Tests", "Orpheus.Tests\Orpheus.Tests.csproj", "{D6B7382E-5B9A-4FDE-9EA6-90891908E027}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{F597AB54-344D-412B-9E9B-7748E2709646}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F597AB54-344D-412B-9E9B-7748E2709646}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F597AB54-344D-412B-9E9B-7748E2709646}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6B7382E-5B9A-4FDE-9EA6-90891908E027}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6B7382E-5B9A-4FDE-9EA6-90891908E027}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6B7382E-5B9A-4FDE-9EA6-90891908E027}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6B7382E-5B9A-4FDE-9EA6-90891908E027}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

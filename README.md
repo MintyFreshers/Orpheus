@@ -1,4 +1,33 @@
-# Configuration
+# Orpheus Discord Bot
+
+## Testing
+
+The project now includes comprehensive unit and integration tests. To run tests:
+
+```bash
+# Run all tests
+dotnet test
+
+# Run tests from solution root
+cd /path/to/project
+dotnet test Orpheus.sln
+
+# Run tests with coverage
+dotnet test --collect:"XPlat Code Coverage"
+
+# Use the test runner scripts
+cd Orpheus.Tests
+./run-tests.sh         # Linux/macOS
+run-tests.bat          # Windows
+```
+
+Test coverage includes:
+- Core business logic (QueuedSong, SongQueueService, BotConfiguration)
+- Dependency injection setup validation
+- Docker build verification
+- Service integration tests
+
+## Configuration
 
 - Ensure your `appsettings.json` is present in the project root and contains:
   {
