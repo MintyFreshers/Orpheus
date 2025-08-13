@@ -236,8 +236,8 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
 
     private bool NeedsMetadata(QueuedSong song)
     {
-        // Need metadata if title is still generic
-        if (song.Title != "YouTube Video" && song.Title != "Audio Track")
+        // Need metadata if title is still generic or a search placeholder
+        if (song.Title != "YouTube Video" && song.Title != "Audio Track" && !song.Title.StartsWith("Found: "))
             return false;
 
         // Don't fetch if already fetching
@@ -307,12 +307,13 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
             if (!string.IsNullOrWhiteSpace(filePath))
             {
                 song.FilePath = filePath;
-                _logger.LogDebug("Background download completed: {Title}", song.Title);
+                _logger.LogDebug("Background download completed: {Title} -> {FilePath}, File exists: {FileExists}", 
+                    song.Title, filePath, File.Exists(filePath));
                 RecordSuccessfulDownload(song.Url);
             }
             else
             {
-                _logger.LogWarning("Background download failed: {Title}", song.Title);
+                _logger.LogWarning("Background download failed: {Title} - returned null/empty path", song.Title);
                 RecordFailedDownload(song.Url);
             }
         }

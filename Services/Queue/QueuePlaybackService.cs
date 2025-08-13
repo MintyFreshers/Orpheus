@@ -135,9 +135,10 @@ public class QueuePlaybackService : IQueuePlaybackService
                         throw new InvalidOperationException($"Song file path is null after download: {nextSong.Title}");
                     }
 
-                    _logger.LogInformation("Playing song: {Title}", nextSong.Title);
+                    _logger.LogInformation("Playing song: {Title} from file: {FilePath}", nextSong.Title, nextSong.FilePath);
+                    _logger.LogDebug("File exists check: {FileExists}", File.Exists(nextSong.FilePath));
                     var result = await _voiceClientController.PlayMp3Async(guild, client, nextSong.RequestedByUserId, nextSong.FilePath);
-                    _logger.LogDebug("Playbook result: {Result}", result);
+                    _logger.LogInformation("Playback result: {Result}", result);
 
                     // Wait for the song to finish playing
                     await WaitForSongCompletionAsync(cancellationToken);
