@@ -27,7 +27,6 @@ public class WakeWordResponseHandler
     private readonly ILogger<WakeWordResponseHandler> _logger;
     private readonly BotConfiguration _discordConfiguration;
     private readonly ITranscriptionService _transcriptionService;
-    private readonly IVoiceCommandProcessor _voiceCommandProcessor;
     private readonly IVoiceClientController _voiceClientController;
     private readonly ISongQueueService _queueService;
     private readonly IQueuePlaybackService _queuePlaybackService;
@@ -41,7 +40,6 @@ public class WakeWordResponseHandler
         ILogger<WakeWordResponseHandler> logger,
         BotConfiguration discordConfiguration,
         ITranscriptionService transcriptionService,
-        IVoiceCommandProcessor voiceCommandProcessor,
         IVoiceClientController voiceClientController,
         ISongQueueService queueService,
         IQueuePlaybackService queuePlaybackService,
@@ -50,7 +48,6 @@ public class WakeWordResponseHandler
         _logger = logger;
         _discordConfiguration = discordConfiguration;
         _transcriptionService = transcriptionService;
-        _voiceCommandProcessor = voiceCommandProcessor;
         _voiceClientController = voiceClientController;
         _queueService = queueService;
         _queuePlaybackService = queuePlaybackService;
@@ -203,19 +200,8 @@ public class WakeWordResponseHandler
 
     private async Task ProcessSuccessfulTranscriptionAsync(UserTranscriptionSession session, string transcription)
     {
-        // First check for advanced voice commands that need direct access to VoiceClientController
-        var advancedCommandResponse = await TryProcessAdvancedVoiceCommandAsync(transcription, session.UserId, session.Client);
-        
-        string response;
-        if (advancedCommandResponse != null)
-        {
-            response = advancedCommandResponse;
-        }
-        else
-        {
-            // Fall back to basic command processing
-            response = await _voiceCommandProcessor.ProcessCommandAsync(transcription, session.UserId, session.Client);
-        }
+        // Process all voice commands directly in WakeWordResponseHandler to avoid circular dependency
+        var response = await ProcessVoiceCommandAsync(transcription, session.UserId, session.Client);
 
         var channelId = _discordConfiguration.DefaultChannelId;
         await session.Client.Rest.SendMessageAsync(channelId, new MessageProperties().WithContent(response));
@@ -286,15 +272,16 @@ public class WakeWordResponseHandler
         return false;
     }
 
-    private async Task<string?> TryProcessAdvancedVoiceCommandAsync(string transcription, ulong userId, GatewayClient client)
+    private async Task<string> ProcessVoiceCommandAsync(string transcription, ulong userId, GatewayClient client)
     {
         if (string.IsNullOrWhiteSpace(transcription))
         {
-            return null;
+            _logger.LogWarning("Received empty transcription from user {UserId}", userId);
+            return CreateUserMentionResponse(userId, "I didn't hear anything clearly.");
         }
 
         var normalizedCommand = transcription.ToLowerInvariant().Trim();
-        _logger.LogInformation("Checking for advanced voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
+        _logger.LogInformation("Processing voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
 
         // Get guild context from the client cache
         Guild? guild = null;
@@ -306,15 +293,35 @@ public class WakeWordResponseHandler
             
             if (guild == null)
             {
-                _logger.LogWarning("Could not find guild with user {UserId} in voice channel for advanced command", userId);
-                return null; // Let it fall through to basic command processing
+                _logger.LogWarning("Could not find guild with user {UserId} in voice channel", userId);
+                return CreateUserMentionResponse(userId, "I couldn't determine which server you're in. Make sure you're in a voice channel.");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get guild context for advanced voice command");
+            _logger.LogError(ex, "Failed to get guild context for voice command");
+            return CreateUserMentionResponse(userId, "I couldn't determine the server context for this command.");
+        }
+
+        // First try advanced commands (play, leave, playtest)
+        var advancedCommandResponse = await TryProcessAdvancedVoiceCommandAsync(normalizedCommand, userId, client, guild);
+        if (advancedCommandResponse != null)
+        {
+            return advancedCommandResponse;
+        }
+
+        // Fall back to basic commands (say, hello, ping)
+        return ProcessBasicVoiceCommand(normalizedCommand, userId);
+    }
+
+    private async Task<string?> TryProcessAdvancedVoiceCommandAsync(string normalizedCommand, ulong userId, GatewayClient client, Guild guild)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedCommand))
+        {
             return null;
         }
+
+        _logger.LogInformation("Checking for advanced voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
 
         // Handle "leave" command
         if (normalizedCommand.Equals("leave") || normalizedCommand.Contains("leave voice") || normalizedCommand.Contains("disconnect"))
@@ -407,6 +414,45 @@ public class WakeWordResponseHandler
         }
 
         return CreateUserMentionResponse(userId, message);
+    }
+
+    private string ProcessBasicVoiceCommand(string normalizedCommand, ulong userId)
+    {
+        _logger.LogInformation("Processing basic voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
+
+        // Handle "say" commands
+        if (IsSayCommand(normalizedCommand))
+        {
+            var contentToSay = ExtractSayCommandContent(normalizedCommand);
+            _logger.LogInformation("Recognized say command from user {UserId}: '{Content}'", userId, contentToSay);
+            return CreateUserMentionResponse(userId, contentToSay);
+        }
+        
+        // Handle other basic commands
+        if (normalizedCommand.Contains("hello") || normalizedCommand.Contains("hi"))
+        {
+            _logger.LogInformation("Recognized greeting from user {UserId}", userId);
+            return CreateUserMentionResponse(userId, "Hello there!");
+        }
+        
+        if (normalizedCommand.Contains("ping"))
+        {
+            _logger.LogInformation("Recognized ping command from user {UserId}", userId);
+            return CreateUserMentionResponse(userId, "Pong!");
+        }
+
+        _logger.LogInformation("Unrecognized basic command: '{Command}' from user {UserId}", normalizedCommand, userId);
+        return CreateUserMentionResponse(userId, "I don't understand that command. Try saying 'play [song]', 'leave', 'playtest', 'say hello', 'hello', or 'ping'.");
+    }
+
+    private static bool IsSayCommand(string normalizedCommand)
+    {
+        return normalizedCommand.StartsWith("say ") && normalizedCommand.Length > 4;
+    }
+
+    private static string ExtractSayCommandContent(string normalizedCommand)
+    {
+        return normalizedCommand.Substring(4).Trim();
     }
 
     private static bool IsUrl(string input)
