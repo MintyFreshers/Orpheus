@@ -1,9 +1,14 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using NetCord.Gateway;
 using NetCord.Rest;
 using Orpheus.Configuration;
 using Orpheus.Services.Transcription;
+using Orpheus.Services.VoiceClientController;
+using Orpheus.Services.Queue;
+using Orpheus.Services.Downloader.Youtube;
 using System.Collections.Concurrent;
+using System.Linq;
 using Concentus;
 
 namespace Orpheus.Services.WakeWord;
@@ -23,7 +28,10 @@ public class WakeWordResponseHandler
     private readonly ILogger<WakeWordResponseHandler> _logger;
     private readonly BotConfiguration _discordConfiguration;
     private readonly ITranscriptionService _transcriptionService;
-    private readonly IVoiceCommandProcessor _voiceCommandProcessor;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ISongQueueService _queueService;
+    private readonly IQueuePlaybackService _queuePlaybackService;
+    private readonly IYouTubeDownloader _downloader;
     private readonly ConcurrentDictionary<ulong, UserTranscriptionSession> _activeSessions = new();
     private readonly ConcurrentDictionary<ulong, Queue<byte[]>> _audioBuffers = new();
     private readonly ConcurrentDictionary<ulong, int> _silenceFrameCounts = new();
@@ -33,12 +41,18 @@ public class WakeWordResponseHandler
         ILogger<WakeWordResponseHandler> logger,
         BotConfiguration discordConfiguration,
         ITranscriptionService transcriptionService,
-        IVoiceCommandProcessor voiceCommandProcessor)
+        IServiceProvider serviceProvider,
+        ISongQueueService queueService,
+        IQueuePlaybackService queuePlaybackService,
+        IYouTubeDownloader downloader)
     {
         _logger = logger;
         _discordConfiguration = discordConfiguration;
         _transcriptionService = transcriptionService;
-        _voiceCommandProcessor = voiceCommandProcessor;
+        _serviceProvider = serviceProvider;
+        _queueService = queueService;
+        _queuePlaybackService = queuePlaybackService;
+        _downloader = downloader;
         _opusDecoder = OpusCodecFactory.CreateDecoder(DiscordSampleRate, 1);
     }
 
@@ -187,7 +201,9 @@ public class WakeWordResponseHandler
 
     private async Task ProcessSuccessfulTranscriptionAsync(UserTranscriptionSession session, string transcription)
     {
-        var response = await _voiceCommandProcessor.ProcessCommandAsync(transcription, session.UserId);
+        // Process all voice commands directly in WakeWordResponseHandler to avoid circular dependency
+        var response = await ProcessVoiceCommandAsync(transcription, session.UserId, session.Client);
+
         var channelId = _discordConfiguration.DefaultChannelId;
         await session.Client.Rest.SendMessageAsync(channelId, new MessageProperties().WithContent(response));
     }
@@ -257,6 +273,203 @@ public class WakeWordResponseHandler
         return false;
     }
 
+    private async Task<string> ProcessVoiceCommandAsync(string transcription, ulong userId, GatewayClient client)
+    {
+        if (string.IsNullOrWhiteSpace(transcription))
+        {
+            _logger.LogWarning("Received empty transcription from user {UserId}", userId);
+            return CreateUserMentionResponse(userId, "I didn't hear anything clearly.");
+        }
+
+        var normalizedCommand = NormalizeVoiceCommand(transcription);
+        _logger.LogInformation("Processing voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
+
+        // Get guild context from the client cache
+        Guild? guild = null;
+        try
+        {
+            // Find the guild where the user is currently in a voice channel
+            guild = client.Cache.Guilds.Values.FirstOrDefault(g => 
+                g.VoiceStates.ContainsKey(userId) && g.VoiceStates[userId].ChannelId != null);
+            
+            if (guild == null)
+            {
+                _logger.LogWarning("Could not find guild with user {UserId} in voice channel", userId);
+                return CreateUserMentionResponse(userId, "I couldn't determine which server you're in. Make sure you're in a voice channel.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get guild context for voice command");
+            return CreateUserMentionResponse(userId, "I couldn't determine the server context for this command.");
+        }
+
+        // First try advanced commands (play, leave, playtest)
+        var advancedCommandResponse = await TryProcessAdvancedVoiceCommandAsync(normalizedCommand, userId, client, guild);
+        if (advancedCommandResponse != null)
+        {
+            return advancedCommandResponse;
+        }
+
+        // Fall back to basic commands (say, hello, ping)
+        return ProcessBasicVoiceCommand(normalizedCommand, userId);
+    }
+
+    private async Task<string?> TryProcessAdvancedVoiceCommandAsync(string normalizedCommand, ulong userId, GatewayClient client, Guild guild)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedCommand))
+        {
+            return null;
+        }
+
+        _logger.LogInformation("Checking for advanced voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
+
+        // Handle "leave" command - more flexible matching
+        if (IsLeaveCommand(normalizedCommand))
+        {
+            _logger.LogInformation("Recognized leave command from user {UserId}", userId);
+            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+            var result = await voiceClientController.LeaveVoiceChannelAsync(guild, client);
+            return CreateUserMentionResponse(userId, result);
+        }
+
+        // Handle "playtest" command - more flexible matching
+        if (IsPlaytestCommand(normalizedCommand))
+        {
+            _logger.LogInformation("Recognized playtest command from user {UserId}", userId);
+            const string testFilePath = "Resources/ExampleTrack.mp3";
+            
+            if (!File.Exists(testFilePath))
+            {
+                return CreateUserMentionResponse(userId, $"Test file not found: {testFilePath}");
+            }
+            
+            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+            var result = await voiceClientController.PlayMp3Async(guild, client, userId, testFilePath);
+            return CreateUserMentionResponse(userId, result);
+        }
+
+        // Handle "play <song>" command - more flexible matching
+        var playQuery = ExtractPlayQuery(normalizedCommand);
+        if (!string.IsNullOrEmpty(playQuery))
+        {
+            _logger.LogInformation("Recognized play command from user {UserId} with query: {Query}", userId, playQuery);
+            
+            try
+            {
+                return await ProcessPlayCommandAsync(playQuery, userId, guild, client);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing play command for query: {Query}", playQuery);
+                return CreateUserMentionResponse(userId, "Failed to add the song to the queue.");
+            }
+        }
+
+        // Command not recognized as advanced, return null to allow basic processing
+        return null;
+    }
+
+    private async Task<string> ProcessPlayCommandAsync(string query, ulong userId, Guild guild, GatewayClient client)
+    {
+        string? url;
+        string placeholderTitle;
+
+        // Check if the input is a URL or a search query
+        if (IsUrl(query))
+        {
+            url = query;
+            placeholderTitle = GetPlaceholderTitle(url);
+            _logger.LogDebug("Voice play input detected as URL: {Url}", url);
+        }
+        else
+        {
+            // It's a search query
+            _logger.LogDebug("Voice play input detected as search query: {Query}", query);
+            
+            // Search for the first result
+            url = await _downloader.SearchAndGetFirstUrlAsync(query);
+            if (url == null)
+            {
+                return CreateUserMentionResponse(userId, $"❌ No results found for: **{query}**");
+            }
+            
+            _logger.LogInformation("Voice search found URL: {Url} for query: {Query}", url, query);
+            placeholderTitle = $"Found: {query}"; // Will be updated with real title
+        }
+
+        // Check if queue was empty before adding
+        var wasQueueEmpty = _queueService.IsEmpty && _queueService.CurrentSong == null;
+
+        // Create queued song immediately with placeholder title
+        var queuedSong = new QueuedSong(placeholderTitle, url, userId);
+        _queueService.EnqueueSong(queuedSong);
+
+        var queuePosition = _queueService.Count;
+        var message = wasQueueEmpty
+            ? $"✅ Added **{placeholderTitle}** to queue and starting playback!"
+            : $"✅ Added **{placeholderTitle}** to queue (position {queuePosition})";
+
+        // Auto-start queue processing if queue was empty (first song added)
+        if (wasQueueEmpty || !_queuePlaybackService.IsProcessing)
+        {
+            await _queuePlaybackService.StartQueueProcessingAsync(guild, client, userId);
+        }
+
+        return CreateUserMentionResponse(userId, message);
+    }
+
+    private string ProcessBasicVoiceCommand(string normalizedCommand, ulong userId)
+    {
+        _logger.LogInformation("Processing basic voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
+
+        // Handle "say" commands - more flexible matching
+        var sayContent = ExtractSayContent(normalizedCommand);
+        if (!string.IsNullOrEmpty(sayContent))
+        {
+            _logger.LogInformation("Recognized say command from user {UserId}: '{Content}'", userId, sayContent);
+            return CreateUserMentionResponse(userId, sayContent);
+        }
+        
+        // Handle greetings - more flexible matching
+        if (IsGreetingCommand(normalizedCommand))
+        {
+            _logger.LogInformation("Recognized greeting from user {UserId}", userId);
+            return CreateUserMentionResponse(userId, "Hello there!");
+        }
+        
+        // Handle ping command - more flexible matching
+        if (IsPingCommand(normalizedCommand))
+        {
+            _logger.LogInformation("Recognized ping command from user {UserId}", userId);
+            return CreateUserMentionResponse(userId, "Pong!");
+        }
+
+        _logger.LogInformation("Unrecognized basic command: '{Command}' from user {UserId}", normalizedCommand, userId);
+        return CreateUserMentionResponse(userId, "I don't understand that command. Try saying 'play [song]', 'leave', 'playtest', 'say hello', 'hello', or 'ping'.");
+    }
+
+    private static bool IsUrl(string input)
+    {
+        return Uri.TryCreate(input, UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
+    private static string GetPlaceholderTitle(string url)
+    {
+        // Return immediate placeholder based on URL type - no async calls to avoid timeout
+        if (url.Contains("youtube.com") || url.Contains("youtu.be"))
+        {
+            return "YouTube Video"; // Will be updated by background service
+        }
+        return "Audio Track";
+    }
+
+    private static string CreateUserMentionResponse(ulong userId, string message)
+    {
+        return $"<@{userId}> {message}";
+    }
+
     private static int CalculateAudioLevel(byte[] pcmAudioData)
     {
         if (pcmAudioData.Length < 2)
@@ -270,6 +483,115 @@ public class WakeWordResponseHandler
         }
 
         return (int)(sum / (pcmAudioData.Length / 2));
+    }
+
+    private static string NormalizeVoiceCommand(string transcription)
+    {
+        if (string.IsNullOrWhiteSpace(transcription))
+            return string.Empty;
+
+        // Convert to lowercase and remove common punctuation
+        var normalized = transcription.ToLowerInvariant()
+            .Replace(".", "")
+            .Replace(",", "")
+            .Replace("?", "")
+            .Replace("!", "")
+            .Replace(";", "")
+            .Replace(":", "")
+            .Trim();
+
+        // Normalize multiple spaces to single spaces
+        while (normalized.Contains("  "))
+        {
+            normalized = normalized.Replace("  ", " ");
+        }
+
+        return normalized;
+    }
+
+    private static bool IsLeaveCommand(string normalizedCommand)
+    {
+        // Check for various ways to say "leave"
+        return normalizedCommand == "leave" ||
+               normalizedCommand == "disconnect" ||
+               normalizedCommand == "exit" ||
+               normalizedCommand == "quit" ||
+               normalizedCommand.Contains("leave voice") ||
+               normalizedCommand.Contains("disconnect from voice") ||
+               normalizedCommand.StartsWith("leave ");
+    }
+
+    private static bool IsPlaytestCommand(string normalizedCommand)
+    {
+        // Check for various ways to say "playtest"
+        return normalizedCommand == "playtest" ||
+               normalizedCommand == "play test" ||
+               normalizedCommand == "test play" ||
+               normalizedCommand.Contains("play test") ||
+               normalizedCommand.Contains("test audio") ||
+               normalizedCommand.Contains("test sound");
+    }
+
+    private static string? ExtractPlayQuery(string normalizedCommand)
+    {
+        // More flexible play command extraction
+        if (normalizedCommand.StartsWith("play ") && normalizedCommand.Length > 5)
+        {
+            return normalizedCommand.Substring(5).Trim();
+        }
+
+        // Handle variations like "can you play", "please play", etc.
+        var playIndex = normalizedCommand.IndexOf(" play ", StringComparison.Ordinal);
+        if (playIndex >= 0)
+        {
+            var afterPlay = normalizedCommand.Substring(playIndex + 6).Trim();
+            if (!string.IsNullOrEmpty(afterPlay))
+            {
+                return afterPlay;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsGreetingCommand(string normalizedCommand)
+    {
+        return normalizedCommand == "hello" ||
+               normalizedCommand == "hi" ||
+               normalizedCommand == "hey" ||
+               normalizedCommand.Contains("hello") ||
+               normalizedCommand.Contains("hi there") ||
+               normalizedCommand.Contains("good morning") ||
+               normalizedCommand.Contains("good afternoon") ||
+               normalizedCommand.Contains("good evening");
+    }
+
+    private static bool IsPingCommand(string normalizedCommand)
+    {
+        return normalizedCommand == "ping" ||
+               normalizedCommand.Contains("ping");
+    }
+
+    private static string? ExtractSayContent(string normalizedCommand)
+    {
+        // Check for "say" at the beginning
+        if (normalizedCommand.StartsWith("say ") && normalizedCommand.Length > 4)
+        {
+            return normalizedCommand.Substring(4).Trim();
+        }
+
+        // Handle variations like "can you say", "please say", etc.
+        var sayIndex = normalizedCommand.IndexOf(" say ", StringComparison.Ordinal);
+        if (sayIndex >= 0)
+        {
+            var afterSay = normalizedCommand.Substring(sayIndex + 5).Trim();
+            if (!string.IsNullOrEmpty(afterSay))
+            {
+                return afterSay;
+            }
+        }
+
+        return null;
     }
 }
 

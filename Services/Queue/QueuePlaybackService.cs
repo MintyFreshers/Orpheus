@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using NetCord.Gateway;
 using Orpheus.Services.Downloader.Youtube;
 using Orpheus.Services.VoiceClientController;
@@ -16,7 +17,7 @@ public interface IQueuePlaybackService
 public class QueuePlaybackService : IQueuePlaybackService
 {
     private readonly ISongQueueService _queueService;
-    private readonly IVoiceClientController _voiceClientController;
+    private readonly IServiceProvider _serviceProvider;
     private readonly IYouTubeDownloader _downloader;
     private readonly IAudioPlaybackService _audioPlaybackService;
     private readonly ILogger<QueuePlaybackService> _logger;
@@ -27,13 +28,13 @@ public class QueuePlaybackService : IQueuePlaybackService
 
     public QueuePlaybackService(
         ISongQueueService queueService,
-        IVoiceClientController voiceClientController,
+        IServiceProvider serviceProvider,
         IYouTubeDownloader downloader,
         IAudioPlaybackService audioPlaybackService,
         ILogger<QueuePlaybackService> logger)
     {
         _queueService = queueService;
-        _voiceClientController = voiceClientController;
+        _serviceProvider = serviceProvider;
         _downloader = downloader;
         _audioPlaybackService = audioPlaybackService;
         _logger = logger;
@@ -96,14 +97,16 @@ public class QueuePlaybackService : IQueuePlaybackService
             }
         }
 
-        await _voiceClientController.StopPlaybackAsync();
+        var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+        await voiceClientController.StopPlaybackAsync();
         _queueService.SetCurrentSong(null);
         _logger.LogInformation("Stopped queue processing");
     }
 
     public async Task SkipCurrentSongAsync()
     {
-        await _voiceClientController.StopPlaybackAsync();
+        var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+        await voiceClientController.StopPlaybackAsync();
         _queueService.SetCurrentSong(null);
         _logger.LogInformation("Skipped current song");
     }
@@ -141,7 +144,8 @@ public class QueuePlaybackService : IQueuePlaybackService
                         File.Exists(nextSong.FilePath) ? new FileInfo(nextSong.FilePath).Length : 0);
                     
                     _logger.LogDebug("Attempting to call VoiceClientController.PlayMp3Async...");
-                    var result = await _voiceClientController.PlayMp3Async(guild, client, nextSong.RequestedByUserId, nextSong.FilePath);
+                    var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+                    var result = await voiceClientController.PlayMp3Async(guild, client, nextSong.RequestedByUserId, nextSong.FilePath);
                     _logger.LogInformation("Playback result: {Result}", result);
                     
                     if (result.Contains("Failed") || result.Contains("not found"))
