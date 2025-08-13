@@ -71,7 +71,7 @@ public class Play : ApplicationCommandModule<ApplicationCommandContext>
                 
                 url = searchResult.Url;
                 // Use the title from search results if available, otherwise use placeholder
-                placeholderTitle = searchResult.Title ?? $"Found: {query}";
+                placeholderTitle = !string.IsNullOrWhiteSpace(searchResult.Title) ? searchResult.Title : $"Found: {query}";
                 
                 _logger.LogInformation("Optimized search found URL: {Url} with title: {Title} for query: {Query}", 
                     url, placeholderTitle, query);
