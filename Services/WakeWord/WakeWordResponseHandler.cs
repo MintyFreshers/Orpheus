@@ -537,7 +537,8 @@ public class WakeWordResponseHandler
         // More flexible play command extraction
         if (normalizedCommand.StartsWith("play ") && normalizedCommand.Length > 5)
         {
-            return normalizedCommand.Substring(5).Trim();
+            var query = normalizedCommand.Substring(5).Trim();
+            return CleanupPlayQuery(query);
         }
 
         // Handle variations like "can you play", "please play", etc.
@@ -547,11 +548,46 @@ public class WakeWordResponseHandler
             var afterPlay = normalizedCommand.Substring(playIndex + 6).Trim();
             if (!string.IsNullOrEmpty(afterPlay))
             {
-                return afterPlay;
+                return CleanupPlayQuery(afterPlay);
             }
         }
 
         return null;
+    }
+
+    private static string CleanupPlayQuery(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return query;
+
+        // Remove common transcription artifacts and filler words at the beginning
+        var cleaned = query.Trim();
+
+        // Remove common filler words that might appear due to transcription errors
+        var fillerWords = new[] { "go", "a", "the", "some", "that", "this", "by", "from" };
+        
+        foreach (var filler in fillerWords)
+        {
+            // Only remove if it's at the very beginning and followed by a space
+            if (cleaned.StartsWith(filler + " "))
+            {
+                var withoutFiller = cleaned.Substring(filler.Length + 1).Trim();
+                // Only remove if there's still content after removing the filler
+                if (!string.IsNullOrWhiteSpace(withoutFiller))
+                {
+                    cleaned = withoutFiller;
+                }
+                break; // Only remove one filler word at the start
+            }
+        }
+
+        // Handle common transcription patterns like "go buy" -> "go by" for "Go by [Artist]"
+        if (cleaned.StartsWith("buy "))
+        {
+            cleaned = "by " + cleaned.Substring(4);
+        }
+
+        return cleaned;
     }
 
     private static bool IsGreetingCommand(string normalizedCommand)
