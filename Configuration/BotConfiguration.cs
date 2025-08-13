@@ -12,6 +12,7 @@ public class BotConfiguration
     }
 
     public ulong DefaultChannelId => GetChannelId("Discord:DefaultChannelId", 738893202706268292UL);
+    public ulong DefaultGuildId => GetChannelId("Discord:DefaultGuildId", 738892805796601926UL);
 
     private ulong GetChannelId(string configKey, ulong defaultValue)
     {

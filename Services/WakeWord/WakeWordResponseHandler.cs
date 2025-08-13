@@ -187,7 +187,7 @@ public class WakeWordResponseHandler
 
     private async Task ProcessSuccessfulTranscriptionAsync(UserTranscriptionSession session, string transcription)
     {
-        var response = await _voiceCommandProcessor.ProcessCommandAsync(transcription, session.UserId);
+        var response = await _voiceCommandProcessor.ProcessCommandAsync(transcription, session.UserId, session.Client);
         var channelId = _discordConfiguration.DefaultChannelId;
         await session.Client.Rest.SendMessageAsync(channelId, new MessageProperties().WithContent(response));
     }
