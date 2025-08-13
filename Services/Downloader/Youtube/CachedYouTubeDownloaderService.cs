@@ -156,6 +156,55 @@ public class CachedYouTubeDownloaderService : IYouTubeDownloader
         return url;
     }
 
+    public async Task<SearchResult?> SearchAndGetFirstResultAsync(string searchQuery)
+    {
+        _logger.LogDebug("Searching with metadata for: {SearchQuery}", searchQuery);
+        
+        // Delegate to base downloader for search functionality with metadata
+        var searchResult = await _baseDownloader.SearchAndGetFirstResultAsync(searchQuery);
+        
+        if (searchResult == null)
+        {
+            _logger.LogDebug("Search returned no results for: {SearchQuery}", searchQuery);
+            return null;
+        }
+        
+        // Check if the found URL corresponds to a cached video
+        var uniqueId = ExtractUniqueId(searchResult.Url);
+        if (!string.IsNullOrEmpty(uniqueId))
+        {
+            _logger.LogDebug("Search found URL {Url} with ID {UniqueId}, checking cache...", searchResult.Url, uniqueId);
+            var cachedSong = await _cacheService.GetCachedSongAsync(uniqueId);
+            if (cachedSong != null)
+            {
+                _logger.LogInformation("Search result for '{SearchQuery}' is already cached: {Title} ({UniqueId})", 
+                    searchQuery, cachedSong.Title, uniqueId);
+                
+                // Return cached metadata, which may be more complete
+                return new SearchResult(searchResult.Url, cachedSong.Title, uniqueId);
+            }
+            else
+            {
+                _logger.LogDebug("Search result for '{SearchQuery}' not cached, will be downloaded: {Url}", searchQuery, searchResult.Url);
+                
+                // If we have a title from search but no cached entry, we could pre-populate the cache metadata here
+                // This would make future operations faster
+                if (!string.IsNullOrEmpty(searchResult.Title))
+                {
+                    _logger.LogDebug("Pre-caching metadata from search for {UniqueId}: {Title}", uniqueId, searchResult.Title);
+                    // Note: We don't have the file path yet, so we can't fully cache, but we could implement
+                    // a metadata-only cache in the future for even better performance
+                }
+            }
+        }
+        else
+        {
+            _logger.LogWarning("Could not extract unique ID from search result URL: {Url}", searchResult.Url);
+        }
+        
+        return searchResult;
+    }
+
     /// <summary>
     /// Extracts a unique identifier from a YouTube URL
     /// </summary>

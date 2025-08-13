@@ -60,17 +60,21 @@ public class Play : ApplicationCommandModule<ApplicationCommandContext>
                 
                 _logger.LogDebug("Input detected as search query: {Query}", query);
                 
-                // Search for the first result
-                url = await _downloader.SearchAndGetFirstUrlAsync(query);
-                if (url == null)
+                // Use the optimized search method that returns both URL and metadata
+                var searchResult = await _downloader.SearchAndGetFirstResultAsync(query);
+                if (searchResult == null)
                 {
                     await Context.Interaction.ModifyResponseAsync(properties => 
                         properties.Content = $"❌ No results found for: **{query}**");
                     return;
                 }
                 
-                _logger.LogInformation("Search found URL: {Url} for query: {Query}", url, query);
-                placeholderTitle = $"Found: {query}"; // Will be updated with real title
+                url = searchResult.Url;
+                // Use the title from search results if available, otherwise use placeholder
+                placeholderTitle = searchResult.Title ?? $"Found: {query}";
+                
+                _logger.LogInformation("Optimized search found URL: {Url} with title: {Title} for query: {Query}", 
+                    url, placeholderTitle, query);
             }
             
             // Check if queue was empty before adding
