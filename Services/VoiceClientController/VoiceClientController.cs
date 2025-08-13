@@ -118,14 +118,18 @@ public class VoiceClientController : IVoiceClientController
 
     public async Task<string> PlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath)
     {
+        _logger.LogDebug("PlayMp3Async called with guild: {GuildId}, user: {UserId}, file: {FilePath}", guild.Id, userId, filePath);
+        
         if (!IsBotInVoiceChannel(guild, client.Id) || _voiceClient == null)
         {
+            _logger.LogDebug("Bot not in voice channel, attempting to join...");
             var joinResult = await JoinVoiceChannelOfUserAsync(guild, client, userId);
             if (_voiceClient == null)
             {
-                _logger.LogWarning("Voice client was not initialized after join attempt");
+                _logger.LogWarning("Voice client was not initialized after join attempt. Join result: {Result}", joinResult);
                 return joinResult;
             }
+            _logger.LogDebug("Successfully joined voice channel for playback");
         }
 
         if (!File.Exists(filePath))
@@ -134,11 +138,25 @@ public class VoiceClientController : IVoiceClientController
             return $"File not found: {filePath}";
         }
 
+        _logger.LogDebug("File exists, checking file size...");
+        var fileInfo = new FileInfo(filePath);
+        _logger.LogDebug("File size: {FileSize} bytes", fileInfo.Length);
+
+        if (fileInfo.Length == 0)
+        {
+            _logger.LogWarning("MP3 file is empty: {FilePath}", filePath);
+            return $"File is empty: {filePath}";
+        }
+
         try
         {
+            _logger.LogDebug("Entering speaking state...");
             await _voiceClient!.EnterSpeakingStateAsync(SpeakingFlags.Microphone);
+            
+            _logger.LogDebug("Creating opus output stream...");
             var outputStream = CreateOpusOutputStream();
             
+            _logger.LogDebug("Starting audio playback task...");
             // Start playback as a fire-and-forget task but ensure proper prioritization
             _ = Task.Run(async () =>
             {
@@ -146,7 +164,9 @@ public class VoiceClientController : IVoiceClientController
                 {
                     // Set high priority for the playback coordination thread
                     Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+                    _logger.LogDebug("Audio playback task started with high priority");
                     await _audioPlaybackService.PlayMp3ToStreamAsync(filePath, outputStream);
+                    _logger.LogDebug("Audio playback task completed successfully");
                 }
                 catch (Exception ex)
                 {
@@ -155,7 +175,7 @@ public class VoiceClientController : IVoiceClientController
             }, CancellationToken.None);
 
             _logger.LogInformation("Started playback of file: {FilePath}", filePath);
-            return "Playing test MP3 file!";
+            return "Playing MP3 file!";
         }
         catch (Exception ex)
         {

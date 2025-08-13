@@ -253,7 +253,10 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
         lock (_metadataLock)
         {
             if (_fetchingMetadataUrls.Contains(song.Url))
+            {
+                _logger.LogDebug("Metadata already being fetched for: {Url}", song.Url);
                 return;
+            }
             _fetchingMetadataUrls.Add(song.Url);
         }
 
@@ -261,16 +264,25 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
         
         try
         {
-            _logger.LogDebug("Fetching metadata for: {Url}", song.Url);
+            _logger.LogDebug("Fetching metadata for: {Url}, current title: '{CurrentTitle}'", song.Url, song.Title);
             
             var actualTitle = await _downloader.GetVideoTitleAsync(song.Url);
+            _logger.LogDebug("Retrieved title for URL {Url}: '{Title}'", song.Url, actualTitle ?? "(null)");
+            
             if (!string.IsNullOrWhiteSpace(actualTitle))
             {
+                var oldTitle = song.Title;
                 song.Title = actualTitle;
-                _logger.LogDebug("Updated title for {Url}: {Title}", song.Url, actualTitle);
+                _logger.LogInformation("Updated song title from '{OldTitle}' to '{NewTitle}'", oldTitle, actualTitle);
                 
                 // Send follow-up message with real title
+                _logger.LogDebug("Sending title update for song ID: {SongId}", song.Id);
                 await _messageUpdateService.SendSongTitleUpdateAsync(song.Id, actualTitle);
+                _logger.LogDebug("Title update sent successfully");
+            }
+            else
+            {
+                _logger.LogWarning("Retrieved empty or null title for URL: {Url}", song.Url);
             }
         }
         catch (Exception ex)

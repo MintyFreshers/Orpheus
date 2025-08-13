@@ -136,9 +136,18 @@ public class QueuePlaybackService : IQueuePlaybackService
                     }
 
                     _logger.LogInformation("Playing song: {Title} from file: {FilePath}", nextSong.Title, nextSong.FilePath);
-                    _logger.LogDebug("File exists check: {FileExists}", File.Exists(nextSong.FilePath));
+                    _logger.LogDebug("File exists check: {FileExists}, File size: {FileSize} bytes", 
+                        File.Exists(nextSong.FilePath), 
+                        File.Exists(nextSong.FilePath) ? new FileInfo(nextSong.FilePath).Length : 0);
+                    
+                    _logger.LogDebug("Attempting to call VoiceClientController.PlayMp3Async...");
                     var result = await _voiceClientController.PlayMp3Async(guild, client, nextSong.RequestedByUserId, nextSong.FilePath);
                     _logger.LogInformation("Playback result: {Result}", result);
+                    
+                    if (result.Contains("Failed") || result.Contains("not found"))
+                    {
+                        throw new InvalidOperationException($"Audio playback failed: {result}");
+                    }
 
                     // Wait for the song to finish playing
                     await WaitForSongCompletionAsync(cancellationToken);
