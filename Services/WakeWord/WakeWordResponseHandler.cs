@@ -281,7 +281,7 @@ public class WakeWordResponseHandler
             return CreateUserMentionResponse(userId, "I didn't hear anything clearly.");
         }
 
-        var normalizedCommand = transcription.ToLowerInvariant().Trim();
+        var normalizedCommand = NormalizeVoiceCommand(transcription);
         _logger.LogInformation("Processing voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
 
         // Get guild context from the client cache
@@ -324,8 +324,8 @@ public class WakeWordResponseHandler
 
         _logger.LogInformation("Checking for advanced voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
 
-        // Handle "leave" command
-        if (normalizedCommand.Equals("leave") || normalizedCommand.Contains("leave voice") || normalizedCommand.Contains("disconnect"))
+        // Handle "leave" command - more flexible matching
+        if (IsLeaveCommand(normalizedCommand))
         {
             _logger.LogInformation("Recognized leave command from user {UserId}", userId);
             var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
@@ -333,8 +333,8 @@ public class WakeWordResponseHandler
             return CreateUserMentionResponse(userId, result);
         }
 
-        // Handle "playtest" command  
-        if (normalizedCommand.Equals("playtest") || normalizedCommand.Contains("play test"))
+        // Handle "playtest" command - more flexible matching
+        if (IsPlaytestCommand(normalizedCommand))
         {
             _logger.LogInformation("Recognized playtest command from user {UserId}", userId);
             const string testFilePath = "Resources/ExampleTrack.mp3";
@@ -349,19 +349,19 @@ public class WakeWordResponseHandler
             return CreateUserMentionResponse(userId, result);
         }
 
-        // Handle "play <song>" command
-        if (normalizedCommand.StartsWith("play ") && normalizedCommand.Length > 5)
+        // Handle "play <song>" command - more flexible matching
+        var playQuery = ExtractPlayQuery(normalizedCommand);
+        if (!string.IsNullOrEmpty(playQuery))
         {
-            var songQuery = normalizedCommand.Substring(5).Trim();
-            _logger.LogInformation("Recognized play command from user {UserId} with query: {Query}", userId, songQuery);
+            _logger.LogInformation("Recognized play command from user {UserId} with query: {Query}", userId, playQuery);
             
             try
             {
-                return await ProcessPlayCommandAsync(songQuery, userId, guild, client);
+                return await ProcessPlayCommandAsync(playQuery, userId, guild, client);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing play command for query: {Query}", songQuery);
+                _logger.LogError(ex, "Error processing play command for query: {Query}", playQuery);
                 return CreateUserMentionResponse(userId, "Failed to add the song to the queue.");
             }
         }
@@ -423,22 +423,23 @@ public class WakeWordResponseHandler
     {
         _logger.LogInformation("Processing basic voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
 
-        // Handle "say" commands
-        if (IsSayCommand(normalizedCommand))
+        // Handle "say" commands - more flexible matching
+        var sayContent = ExtractSayContent(normalizedCommand);
+        if (!string.IsNullOrEmpty(sayContent))
         {
-            var contentToSay = ExtractSayCommandContent(normalizedCommand);
-            _logger.LogInformation("Recognized say command from user {UserId}: '{Content}'", userId, contentToSay);
-            return CreateUserMentionResponse(userId, contentToSay);
+            _logger.LogInformation("Recognized say command from user {UserId}: '{Content}'", userId, sayContent);
+            return CreateUserMentionResponse(userId, sayContent);
         }
         
-        // Handle other basic commands
-        if (normalizedCommand.Contains("hello") || normalizedCommand.Contains("hi"))
+        // Handle greetings - more flexible matching
+        if (IsGreetingCommand(normalizedCommand))
         {
             _logger.LogInformation("Recognized greeting from user {UserId}", userId);
             return CreateUserMentionResponse(userId, "Hello there!");
         }
         
-        if (normalizedCommand.Contains("ping"))
+        // Handle ping command - more flexible matching
+        if (IsPingCommand(normalizedCommand))
         {
             _logger.LogInformation("Recognized ping command from user {UserId}", userId);
             return CreateUserMentionResponse(userId, "Pong!");
@@ -446,16 +447,6 @@ public class WakeWordResponseHandler
 
         _logger.LogInformation("Unrecognized basic command: '{Command}' from user {UserId}", normalizedCommand, userId);
         return CreateUserMentionResponse(userId, "I don't understand that command. Try saying 'play [song]', 'leave', 'playtest', 'say hello', 'hello', or 'ping'.");
-    }
-
-    private static bool IsSayCommand(string normalizedCommand)
-    {
-        return normalizedCommand.StartsWith("say ") && normalizedCommand.Length > 4;
-    }
-
-    private static string ExtractSayCommandContent(string normalizedCommand)
-    {
-        return normalizedCommand.Substring(4).Trim();
     }
 
     private static bool IsUrl(string input)
@@ -492,6 +483,115 @@ public class WakeWordResponseHandler
         }
 
         return (int)(sum / (pcmAudioData.Length / 2));
+    }
+
+    private static string NormalizeVoiceCommand(string transcription)
+    {
+        if (string.IsNullOrWhiteSpace(transcription))
+            return string.Empty;
+
+        // Convert to lowercase and remove common punctuation
+        var normalized = transcription.ToLowerInvariant()
+            .Replace(".", "")
+            .Replace(",", "")
+            .Replace("?", "")
+            .Replace("!", "")
+            .Replace(";", "")
+            .Replace(":", "")
+            .Trim();
+
+        // Normalize multiple spaces to single spaces
+        while (normalized.Contains("  "))
+        {
+            normalized = normalized.Replace("  ", " ");
+        }
+
+        return normalized;
+    }
+
+    private static bool IsLeaveCommand(string normalizedCommand)
+    {
+        // Check for various ways to say "leave"
+        return normalizedCommand == "leave" ||
+               normalizedCommand == "disconnect" ||
+               normalizedCommand == "exit" ||
+               normalizedCommand == "quit" ||
+               normalizedCommand.Contains("leave voice") ||
+               normalizedCommand.Contains("disconnect from voice") ||
+               normalizedCommand.StartsWith("leave ");
+    }
+
+    private static bool IsPlaytestCommand(string normalizedCommand)
+    {
+        // Check for various ways to say "playtest"
+        return normalizedCommand == "playtest" ||
+               normalizedCommand == "play test" ||
+               normalizedCommand == "test play" ||
+               normalizedCommand.Contains("play test") ||
+               normalizedCommand.Contains("test audio") ||
+               normalizedCommand.Contains("test sound");
+    }
+
+    private static string? ExtractPlayQuery(string normalizedCommand)
+    {
+        // More flexible play command extraction
+        if (normalizedCommand.StartsWith("play ") && normalizedCommand.Length > 5)
+        {
+            return normalizedCommand.Substring(5).Trim();
+        }
+
+        // Handle variations like "can you play", "please play", etc.
+        var playIndex = normalizedCommand.IndexOf(" play ", StringComparison.Ordinal);
+        if (playIndex >= 0)
+        {
+            var afterPlay = normalizedCommand.Substring(playIndex + 6).Trim();
+            if (!string.IsNullOrEmpty(afterPlay))
+            {
+                return afterPlay;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsGreetingCommand(string normalizedCommand)
+    {
+        return normalizedCommand == "hello" ||
+               normalizedCommand == "hi" ||
+               normalizedCommand == "hey" ||
+               normalizedCommand.Contains("hello") ||
+               normalizedCommand.Contains("hi there") ||
+               normalizedCommand.Contains("good morning") ||
+               normalizedCommand.Contains("good afternoon") ||
+               normalizedCommand.Contains("good evening");
+    }
+
+    private static bool IsPingCommand(string normalizedCommand)
+    {
+        return normalizedCommand == "ping" ||
+               normalizedCommand.Contains("ping");
+    }
+
+    private static string? ExtractSayContent(string normalizedCommand)
+    {
+        // Check for "say" at the beginning
+        if (normalizedCommand.StartsWith("say ") && normalizedCommand.Length > 4)
+        {
+            return normalizedCommand.Substring(4).Trim();
+        }
+
+        // Handle variations like "can you say", "please say", etc.
+        var sayIndex = normalizedCommand.IndexOf(" say ", StringComparison.Ordinal);
+        if (sayIndex >= 0)
+        {
+            var afterSay = normalizedCommand.Substring(sayIndex + 5).Trim();
+            if (!string.IsNullOrEmpty(afterSay))
+            {
+                return afterSay;
+            }
+        }
+
+        return null;
     }
 }
 
