@@ -7,7 +7,7 @@ namespace Orpheus.Services.Transcription;
 
 public class WhisperTranscriptionService : ITranscriptionService, IDisposable
 {
-    private const string TinyModelFileName = "ggml-tiny.bin";
+    private const string ModelFileName = "ggml-small.bin";
     private const bool EnableDebugAudioSaving = true;
     private const string LanguageCode = "en";
     private const int DiscordSampleRate = 48000;
@@ -106,7 +106,7 @@ public class WhisperTranscriptionService : ITranscriptionService, IDisposable
 
     private static string GetModelPath()
     {
-        return Path.Combine(Environment.CurrentDirectory, "Models", TinyModelFileName);
+        return Path.Combine(Environment.CurrentDirectory, "Models", ModelFileName);
     }
 
     private static void CreateModelDirectoryIfNeeded(string modelPath)
@@ -120,15 +120,15 @@ public class WhisperTranscriptionService : ITranscriptionService, IDisposable
 
     private async Task DownloadWhisperModelAsync(string modelPath)
     {
-        _logger.LogInformation("Downloading Whisper tiny model...");
+        _logger.LogInformation("Downloading Whisper small model for better transcription accuracy...");
 
         using var httpClient = new HttpClient();
         var downloader = new WhisperGgmlDownloader(httpClient);
-        using var modelStream = await downloader.GetGgmlModelAsync(GgmlType.Tiny);
+        using var modelStream = await downloader.GetGgmlModelAsync(GgmlType.Small);
         using var fileWriter = File.Create(modelPath);
         await modelStream.CopyToAsync(fileWriter);
 
-        _logger.LogInformation("Model downloaded successfully");
+        _logger.LogInformation("Whisper small model downloaded successfully");
     }
 
     private Task InitializeWhisperComponents(string modelPath)
@@ -138,6 +138,9 @@ public class WhisperTranscriptionService : ITranscriptionService, IDisposable
             _whisperFactory = WhisperFactory.FromPath(modelPath);
             _whisperProcessor = _whisperFactory.CreateBuilder()
                 .WithLanguage(LanguageCode)
+                .WithPrompt("This is a voice command for a Discord music bot. Common commands include: play, stop, pause, skip, queue, leave, hello, say")
+                .WithProbabilities()
+                .WithTemperature(0.1f)  // Lower temperature for more focused/consistent results
                 .Build();
 
             _isInitialized = true;
