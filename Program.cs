@@ -166,7 +166,6 @@ internal class Program
         services.AddSingleton<IVoiceClientController, VoiceClientController>();
         services.AddSingleton<IWakeWordDetectionService, PicovoiceWakeWordService>();
         services.AddSingleton<ITranscriptionService, WhisperTranscriptionService>();
-        services.AddSingleton<IVoiceCommandProcessor, VoiceCommandProcessor>();
         services.AddSingleton<BotConfiguration>();
         services.AddSingleton<WakeWordResponseHandler>();
         services.AddSingleton<IMessageUpdateService, MessageUpdateService>();

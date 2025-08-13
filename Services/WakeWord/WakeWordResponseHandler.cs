@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using NetCord.Gateway;
 using NetCord.Rest;
 using Orpheus.Configuration;
@@ -27,7 +28,7 @@ public class WakeWordResponseHandler
     private readonly ILogger<WakeWordResponseHandler> _logger;
     private readonly BotConfiguration _discordConfiguration;
     private readonly ITranscriptionService _transcriptionService;
-    private readonly IVoiceClientController _voiceClientController;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ISongQueueService _queueService;
     private readonly IQueuePlaybackService _queuePlaybackService;
     private readonly IYouTubeDownloader _downloader;
@@ -40,7 +41,7 @@ public class WakeWordResponseHandler
         ILogger<WakeWordResponseHandler> logger,
         BotConfiguration discordConfiguration,
         ITranscriptionService transcriptionService,
-        IVoiceClientController voiceClientController,
+        IServiceProvider serviceProvider,
         ISongQueueService queueService,
         IQueuePlaybackService queuePlaybackService,
         IYouTubeDownloader downloader)
@@ -48,7 +49,7 @@ public class WakeWordResponseHandler
         _logger = logger;
         _discordConfiguration = discordConfiguration;
         _transcriptionService = transcriptionService;
-        _voiceClientController = voiceClientController;
+        _serviceProvider = serviceProvider;
         _queueService = queueService;
         _queuePlaybackService = queuePlaybackService;
         _downloader = downloader;
@@ -327,7 +328,8 @@ public class WakeWordResponseHandler
         if (normalizedCommand.Equals("leave") || normalizedCommand.Contains("leave voice") || normalizedCommand.Contains("disconnect"))
         {
             _logger.LogInformation("Recognized leave command from user {UserId}", userId);
-            var result = await _voiceClientController.LeaveVoiceChannelAsync(guild, client);
+            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+            var result = await voiceClientController.LeaveVoiceChannelAsync(guild, client);
             return CreateUserMentionResponse(userId, result);
         }
 
@@ -342,7 +344,8 @@ public class WakeWordResponseHandler
                 return CreateUserMentionResponse(userId, $"Test file not found: {testFilePath}");
             }
             
-            var result = await _voiceClientController.PlayMp3Async(guild, client, userId, testFilePath);
+            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+            var result = await voiceClientController.PlayMp3Async(guild, client, userId, testFilePath);
             return CreateUserMentionResponse(userId, result);
         }
 
