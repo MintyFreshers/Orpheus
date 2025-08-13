@@ -26,6 +26,17 @@ public class AudioPlaybackService : IAudioPlaybackService
 
         await Task.Run(async () =>
         {
+            // Set high priority for audio streaming thread
+            try
+            {
+                Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+                _logger.LogDebug("Set audio streaming thread priority to AboveNormal");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to set streaming thread priority");
+            }
+
             _logger.LogDebug("Preparing to start FFMPEG for file: {FilePath}", filePath);
 
             var startInfo = CreateFfmpegProcessStartInfo(filePath);
@@ -45,7 +56,9 @@ public class AudioPlaybackService : IAudioPlaybackService
 
                 var stderrTask = ffmpeg.StandardError.ReadToEndAsync();
 
-                await ffmpeg.StandardOutput.BaseStream.CopyToAsync(outputStream, cancellationToken);
+                // Use larger buffer size for smoother streaming (64KB instead of default 4KB)
+                var bufferSize = 65536;
+                await ffmpeg.StandardOutput.BaseStream.CopyToAsync(outputStream, bufferSize, cancellationToken);
                 await outputStream.FlushAsync(cancellationToken);
 
                 _logger.LogInformation("Finished streaming audio for file: {FilePath}", filePath);
@@ -103,16 +116,37 @@ public class AudioPlaybackService : IAudioPlaybackService
         };
 
         var arguments = startInfo.ArgumentList;
-        arguments.Add("-i");
-        arguments.Add(filePath);
+        
+        // Input options must come BEFORE -i and the input file
         arguments.Add("-loglevel");
         arguments.Add("error");
+        arguments.Add("-threads");
+        arguments.Add("2"); // Use multiple threads for decoding
+        arguments.Add("-thread_queue_size");
+        arguments.Add("1024"); // Increase thread queue size for smoother streaming
+        
+        // Input file specification
+        arguments.Add("-i");
+        arguments.Add(filePath);
+        
+        // Output format settings (these come after the input)
         arguments.Add("-ac");
         arguments.Add("2");
         arguments.Add("-f");
         arguments.Add("s16le");
         arguments.Add("-ar");
         arguments.Add("48000");
+        
+        // Buffering and streaming optimizations
+        arguments.Add("-fflags");
+        arguments.Add("+flush_packets"); // Flush packets immediately for real-time streaming
+        arguments.Add("-flags");
+        arguments.Add("low_delay"); // Minimize delay for real-time audio
+        arguments.Add("-probesize");
+        arguments.Add("32"); // Smaller probe size for faster startup
+        arguments.Add("-analyzeduration");
+        arguments.Add("0"); // Skip analysis for faster startup
+        
         arguments.Add("pipe:1");
 
         _logger.LogInformation("FFMPEG command: ffmpeg {Args}", string.Join(" ", arguments));
@@ -125,12 +159,38 @@ public class AudioPlaybackService : IAudioPlaybackService
     {
         try
         {
-            ffmpeg.PriorityClass = ProcessPriorityClass.AboveNormal;
-            _logger.LogInformation("Set FFMPEG process priority to {Priority}", ffmpeg.PriorityClass);
+            // Try different priority levels in order of preference
+            // Start with High for best performance, fall back to lower levels if permission denied
+            var prioritiesToTry = new[]
+            {
+                ProcessPriorityClass.High,
+                ProcessPriorityClass.AboveNormal,
+                ProcessPriorityClass.Normal
+            };
+
+            Exception? lastException = null;
+            foreach (var priority in prioritiesToTry)
+            {
+                try
+                {
+                    ffmpeg.PriorityClass = priority;
+                    _logger.LogInformation("Set FFMPEG process priority to {Priority}", priority);
+                    return; // Success, exit early
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    _logger.LogDebug("Could not set FFMPEG priority to {Priority}: {Error}", priority, ex.Message);
+                }
+            }
+
+            // If we get here, all priority attempts failed
+            _logger.LogDebug("Unable to set FFMPEG process priority (common in containerized environments): {Error}", 
+                lastException?.Message ?? "Unknown error");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to set FFMPEG process priority");
+            _logger.LogDebug("Process priority setting failed: {Error}", ex.Message);
         }
     }
 

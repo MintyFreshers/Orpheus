@@ -117,8 +117,8 @@ public class QueuePlaybackService : IQueuePlaybackService
                 var nextSong = _queueService.DequeueNext();
                 if (nextSong == null)
                 {
-                    // Wait for songs to be added to the queue
-                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    // Wait for songs to be added to the queue - reduced delay for better responsiveness
+                    await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
                     continue;
                 }
 
@@ -135,9 +135,19 @@ public class QueuePlaybackService : IQueuePlaybackService
                         throw new InvalidOperationException($"Song file path is null after download: {nextSong.Title}");
                     }
 
-                    _logger.LogInformation("Playing song: {Title}", nextSong.Title);
+                    _logger.LogInformation("Playing song: {Title} from file: {FilePath}", nextSong.Title, nextSong.FilePath);
+                    _logger.LogDebug("File exists check: {FileExists}, File size: {FileSize} bytes", 
+                        File.Exists(nextSong.FilePath), 
+                        File.Exists(nextSong.FilePath) ? new FileInfo(nextSong.FilePath).Length : 0);
+                    
+                    _logger.LogDebug("Attempting to call VoiceClientController.PlayMp3Async...");
                     var result = await _voiceClientController.PlayMp3Async(guild, client, nextSong.RequestedByUserId, nextSong.FilePath);
-                    _logger.LogDebug("Playbook result: {Result}", result);
+                    _logger.LogInformation("Playback result: {Result}", result);
+                    
+                    if (result.Contains("Failed") || result.Contains("not found"))
+                    {
+                        throw new InvalidOperationException($"Audio playback failed: {result}");
+                    }
 
                     // Wait for the song to finish playing
                     await WaitForSongCompletionAsync(cancellationToken);
@@ -193,7 +203,7 @@ public class QueuePlaybackService : IQueuePlaybackService
             // 1. Playback to complete naturally (via event)
             // 2. Song to be skipped/stopped (CurrentSong becomes null)
             // 3. Cancellation
-            var checkInterval = TimeSpan.FromSeconds(1);
+            var checkInterval = TimeSpan.FromMilliseconds(500); // Reduced to 500ms for better responsiveness
             var maxWaitTime = TimeSpan.FromMinutes(10); // Max song length
             var elapsed = TimeSpan.Zero;
 

@@ -19,10 +19,17 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
     private readonly ILogger<BackgroundDownloadService> _logger;
     private readonly HashSet<string> _downloadingUrls = new();
     private readonly HashSet<string> _fetchingMetadataUrls = new();
+    private readonly Dictionary<string, int> _failedDownloadCounts = new(); // Track failed download attempts
+    private readonly Dictionary<string, DateTime> _lastFailedAttempt = new(); // Track when last failure occurred
     private readonly object _downloadingLock = new();
     private readonly object _metadataLock = new();
+    private readonly object _failedDownloadsLock = new();
     private readonly SemaphoreSlim _downloadSemaphore = new(3); // Max 3 concurrent downloads
     private readonly SemaphoreSlim _metadataSemaphore = new(5); // Max 5 concurrent metadata fetches
+
+    // Configuration for retry behavior
+    private const int MaxRetryAttempts = 3;
+    private static readonly TimeSpan RetryBackoffPeriod = TimeSpan.FromMinutes(5);
 
     public BackgroundDownloadService(
         ISongQueueService queueService,
@@ -161,14 +168,76 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
         // Don't download if already downloading
         lock (_downloadingLock)
         {
-            return !_downloadingUrls.Contains(song.Url);
+            if (_downloadingUrls.Contains(song.Url))
+                return false;
+        }
+
+        // Don't retry downloads that have failed too many times
+        if (ShouldSkipFailedDownload(song.Url))
+            return false;
+
+        return true;
+    }
+
+    private bool ShouldSkipFailedDownload(string url)
+    {
+        lock (_failedDownloadsLock)
+        {
+            if (!_failedDownloadCounts.ContainsKey(url))
+                return false;
+
+            var failedCount = _failedDownloadCounts[url];
+            if (failedCount < MaxRetryAttempts)
+                return false;
+
+            // Check if enough time has passed since last failure to allow retry
+            if (_lastFailedAttempt.TryGetValue(url, out var lastFailure))
+            {
+                var timeSinceLastFailure = DateTime.UtcNow - lastFailure;
+                if (timeSinceLastFailure >= RetryBackoffPeriod)
+                {
+                    _logger.LogInformation("Resetting retry count for URL after backoff period: {Url}", url);
+                    _failedDownloadCounts[url] = 0;
+                    _lastFailedAttempt.Remove(url);
+                    return false;
+                }
+            }
+
+            _logger.LogDebug("Skipping download for URL that has failed {FailedCount} times: {Url}", failedCount, url);
+            return true;
+        }
+    }
+
+    private void RecordFailedDownload(string url)
+    {
+        lock (_failedDownloadsLock)
+        {
+            _failedDownloadCounts[url] = _failedDownloadCounts.GetValueOrDefault(url, 0) + 1;
+            _lastFailedAttempt[url] = DateTime.UtcNow;
+            
+            var failedCount = _failedDownloadCounts[url];
+            _logger.LogWarning("Recorded failed download attempt {FailedCount}/{MaxAttempts} for URL: {Url}", 
+                failedCount, MaxRetryAttempts, url);
+        }
+    }
+
+    private void RecordSuccessfulDownload(string url)
+    {
+        lock (_failedDownloadsLock)
+        {
+            if (_failedDownloadCounts.ContainsKey(url))
+            {
+                _logger.LogDebug("Clearing failed download history for successful download: {Url}", url);
+                _failedDownloadCounts.Remove(url);
+                _lastFailedAttempt.Remove(url);
+            }
         }
     }
 
     private bool NeedsMetadata(QueuedSong song)
     {
-        // Need metadata if title is still generic
-        if (song.Title != "YouTube Video" && song.Title != "Audio Track")
+        // Need metadata if title is still generic or a search placeholder
+        if (song.Title != "YouTube Video" && song.Title != "Audio Track" && !song.Title.StartsWith("Found: "))
             return false;
 
         // Don't fetch if already fetching
@@ -184,7 +253,10 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
         lock (_metadataLock)
         {
             if (_fetchingMetadataUrls.Contains(song.Url))
+            {
+                _logger.LogDebug("Metadata already being fetched for: {Url}", song.Url);
                 return;
+            }
             _fetchingMetadataUrls.Add(song.Url);
         }
 
@@ -192,16 +264,25 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
         
         try
         {
-            _logger.LogDebug("Fetching metadata for: {Url}", song.Url);
+            _logger.LogDebug("Fetching metadata for: {Url}, current title: '{CurrentTitle}'", song.Url, song.Title);
             
             var actualTitle = await _downloader.GetVideoTitleAsync(song.Url);
+            _logger.LogDebug("Retrieved title for URL {Url}: '{Title}'", song.Url, actualTitle ?? "(null)");
+            
             if (!string.IsNullOrWhiteSpace(actualTitle))
             {
+                var oldTitle = song.Title;
                 song.Title = actualTitle;
-                _logger.LogDebug("Updated title for {Url}: {Title}", song.Url, actualTitle);
+                _logger.LogInformation("Updated song title from '{OldTitle}' to '{NewTitle}'", oldTitle, actualTitle);
                 
                 // Send follow-up message with real title
+                _logger.LogDebug("Sending title update for song ID: {SongId}", song.Id);
                 await _messageUpdateService.SendSongTitleUpdateAsync(song.Id, actualTitle);
+                _logger.LogDebug("Title update sent successfully");
+            }
+            else
+            {
+                _logger.LogWarning("Retrieved empty or null title for URL: {Url}", song.Url);
             }
         }
         catch (Exception ex)
@@ -238,16 +319,20 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
             if (!string.IsNullOrWhiteSpace(filePath))
             {
                 song.FilePath = filePath;
-                _logger.LogDebug("Background download completed: {Title}", song.Title);
+                _logger.LogDebug("Background download completed: {Title} -> {FilePath}, File exists: {FileExists}", 
+                    song.Title, filePath, File.Exists(filePath));
+                RecordSuccessfulDownload(song.Url);
             }
             else
             {
-                _logger.LogWarning("Background download failed: {Title}", song.Title);
+                _logger.LogWarning("Background download failed: {Title} - returned null/empty path", song.Title);
+                RecordFailedDownload(song.Url);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error downloading song: {Title}", song.Title);
+            RecordFailedDownload(song.Url);
         }
         finally
         {

@@ -42,14 +42,19 @@ public class MessageUpdateService : IMessageUpdateService
 
     public async Task SendSongTitleUpdateAsync(string songId, string actualTitle)
     {
+        _logger.LogDebug("SendSongTitleUpdateAsync called for songId: {SongId}, title: '{Title}'", songId, actualTitle);
+        
         List<InteractionContext>? interactions;
         
         lock (_lock)
         {
             if (!_songInteractionMap.TryGetValue(songId, out interactions) || interactions == null)
             {
+                _logger.LogWarning("No interactions found for song ID: {SongId}", songId);
                 return; // No interactions waiting for this song
             }
+            
+            _logger.LogDebug("Found {Count} interactions for song ID: {SongId}", interactions.Count, songId);
             
             // Remove the song from the map since we're sending the update
             _songInteractionMap.Remove(songId);
@@ -61,12 +66,15 @@ public class MessageUpdateService : IMessageUpdateService
             {
                 // Update the message content with actual title
                 var originalContent = context.OriginalMessage ?? string.Empty;
+                _logger.LogDebug("Original message content: '{Content}'", originalContent);
+                
                 var updatedContent = originalContent;
                 
                 // Replace placeholder text with actual title
                 if (originalContent.Contains("YouTube Video"))
                 {
                     updatedContent = originalContent.Replace("YouTube Video", actualTitle);
+                    _logger.LogDebug("Replaced 'YouTube Video' with '{Title}'", actualTitle);
                 }
                 else if (originalContent.Contains("Found: "))
                 {
@@ -74,31 +82,51 @@ public class MessageUpdateService : IMessageUpdateService
                     var foundIndex = originalContent.IndexOf("Found: ");
                     if (foundIndex >= 0)
                     {
-                        var beforeFound = originalContent.Substring(0, foundIndex + 7); // "Found: "
-                        var afterFound = originalContent.Substring(foundIndex + 7);
+                        var beforeFound = originalContent.Substring(0, foundIndex);
+                        var afterFound = originalContent.Substring(foundIndex + 7); // Skip "Found: "
                         
-                        // Find the end of the title (before "** to queue")
+                        _logger.LogDebug("Before 'Found: ': '{Before}', After 'Found: ': '{After}'", beforeFound, afterFound);
+                        
+                        // Find the end of the query (before "** to queue")
                         var endIndex = afterFound.IndexOf("** to queue");
                         if (endIndex >= 0)
                         {
                             var afterTitle = afterFound.Substring(endIndex);
-                            updatedContent = beforeFound + actualTitle + afterTitle;
+                            updatedContent = beforeFound + "**" + actualTitle + afterTitle;
+                            _logger.LogDebug("Found '** to queue' pattern, updated content: '{Content}'", updatedContent);
                         }
                         else
                         {
-                            // Fallback - just replace everything after "Found: "
-                            updatedContent = beforeFound + actualTitle + "** to queue and starting playback!";
+                            // Fallback - replace everything after "Found: " up to first "**"
+                            var starIndex = afterFound.IndexOf("**");
+                            if (starIndex >= 0)
+                            {
+                                var afterTitle = afterFound.Substring(starIndex);
+                                updatedContent = beforeFound + "**" + actualTitle + afterTitle;
+                                _logger.LogDebug("Found '**' pattern, updated content: '{Content}'", updatedContent);
+                            }
+                            else
+                            {
+                                // Last resort fallback
+                                updatedContent = beforeFound + "**" + actualTitle + "** to queue and starting playback!";
+                                _logger.LogDebug("Used fallback pattern, updated content: '{Content}'", updatedContent);
+                            }
                         }
                     }
                 }
+                else
+                {
+                    _logger.LogWarning("Message content doesn't contain expected placeholders. Original: '{Content}'", originalContent);
+                }
                 
                 // Update the original response
+                _logger.LogDebug("Attempting to modify Discord response...");
                 await context.Interaction.ModifyResponseAsync(properties =>
                 {
                     properties.Content = updatedContent;
                 });
                 
-                _logger.LogDebug("Updated message with real song title: {Title}, deferred: {IsDeferred}", actualTitle, context.IsDeferred);
+                _logger.LogInformation("Successfully updated Discord message with real song title: '{Title}'", actualTitle);
             }
             catch (Exception ex)
             {

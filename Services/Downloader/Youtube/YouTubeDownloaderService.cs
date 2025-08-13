@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
+using Orpheus.Services.Cache;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using YoutubeDLSharp;
 using YoutubeDLSharp.Options;
@@ -15,10 +17,14 @@ public class YouTubeDownloaderService : IYouTubeDownloader
 
     public YouTubeDownloaderService(
         ILogger<YouTubeDownloaderService> logger,
-        ILogger<VerboseYoutubeDL> verboseLogger)
+        ILogger<VerboseYoutubeDL> verboseLogger,
+        CacheConfiguration cacheConfig)
     {
         _logger = logger;
-        _downloadFolder = Path.Combine(Directory.GetCurrentDirectory(), "Downloads");
+        
+        // Use the configured cache directory for downloads
+        _downloadFolder = cacheConfig.CacheDirectory;
+        _logger.LogDebug("Using configured cache directory for downloads: {DownloadFolder}", _downloadFolder);
         
         Directory.CreateDirectory(_downloadFolder);
         
@@ -31,7 +37,7 @@ public class YouTubeDownloaderService : IYouTubeDownloader
 #endif
         
         _youtubeDl.OutputFolder = _downloadFolder;
-        _logger.LogDebug("Download folder set to: {DownloadFolder}", _downloadFolder);
+        _logger.LogInformation("Download folder set to: {DownloadFolder}", _downloadFolder);
         
         LogBinaryPaths();
     }
@@ -92,6 +98,9 @@ public class YouTubeDownloaderService : IYouTubeDownloader
         {
             // Use ytsearch: prefix to search YouTube for the query and get the first result
             var searchUrl = $"ytsearch1:{searchQuery}";
+            _logger.LogDebug("Using search URL: {SearchUrl}", searchUrl);
+            
+            // Try to get video info first
             var result = await _youtubeDl.RunVideoDataFetch(searchUrl);
             
             if (!result.Success)
@@ -101,14 +110,122 @@ public class YouTubeDownloaderService : IYouTubeDownloader
                 return null;
             }
 
-            var url = result.Data?.WebpageUrl;
-            if (!string.IsNullOrWhiteSpace(url))
+            // Enhanced logging to debug the search result data
+            _logger.LogInformation("Search result for '{SearchQuery}': Success={Success}, HasData={HasData}", 
+                searchQuery, result.Success, result.Data != null);
+            
+            if (result.Data != null)
             {
-                _logger.LogInformation("Found URL for search query '{SearchQuery}': {Url}", searchQuery, url);
-                return url;
+                _logger.LogInformation("Search result data - WebpageUrl: {WebpageUrl}, Id: {Id}, Title: {Title}", 
+                    result.Data.WebpageUrl ?? "null",
+                    result.Data.ID ?? "null", 
+                    result.Data.Title ?? "null");
+
+                // Check if this is a playlist with entries (search results)
+                var entriesProperty = result.Data.GetType().GetProperty("Entries");
+                if (entriesProperty != null)
+                {
+                    var entriesValue = entriesProperty.GetValue(result.Data);
+                    _logger.LogInformation("Found Entries property with value: {Entries}", entriesValue?.GetType().Name ?? "null");
+                    
+                    if (entriesValue is System.Collections.IEnumerable entries)
+                    {
+                        foreach (var entry in entries)
+                        {
+                            if (entry != null)
+                            {
+                                _logger.LogInformation("Processing first entry of type: {EntryType}", entry.GetType().Name);
+                                
+                                // Try to get ID from the entry
+                                var entryIdProperty = entry.GetType().GetProperty("ID") ?? entry.GetType().GetProperty("Id");
+                                var entryUrlProperty = entry.GetType().GetProperty("Url") ?? entry.GetType().GetProperty("URL");
+                                var entryTitleProperty = entry.GetType().GetProperty("Title");
+                                
+                                var entryId = entryIdProperty?.GetValue(entry)?.ToString();
+                                var entryUrl = entryUrlProperty?.GetValue(entry)?.ToString();
+                                var entryTitle = entryTitleProperty?.GetValue(entry)?.ToString();
+                                
+                                _logger.LogInformation("Entry data - Id: {Id}, Url: {Url}, Title: {Title}", 
+                                    entryId ?? "null", entryUrl ?? "null", entryTitle ?? "null");
+                                
+                                // Validate and use entry ID if available
+                                if (!string.IsNullOrWhiteSpace(entryId))
+                                {
+                                    var videoId = entryId.Trim();
+                                    
+                                    // Validate video ID format (YouTube video IDs are typically 11 characters, alphanumeric + - _)
+                                    if (videoId.Length == 11 && videoId.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'))
+                                    {
+                                        var constructedUrl = $"https://www.youtube.com/watch?v={videoId}";
+                                        _logger.LogInformation("✅ Constructed valid YouTube URL from entry video ID for '{SearchQuery}': {Url}", searchQuery, constructedUrl);
+                                        return constructedUrl;
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning("⚠️ Invalid entry video ID format '{VideoId}' for search query '{SearchQuery}' - length: {Length}", 
+                                            videoId, searchQuery, videoId.Length);
+                                    }
+                                }
+                                
+                                // Use entry URL if video ID validation failed but URL is available
+                                if (!string.IsNullOrWhiteSpace(entryUrl))
+                                {
+                                    var trimmedUrl = entryUrl.Trim();
+                                    if (trimmedUrl.Contains("youtube.com/watch") || trimmedUrl.Contains("youtu.be/"))
+                                    {
+                                        _logger.LogInformation("✅ Using entry URL for search query '{SearchQuery}': {Url}", searchQuery, trimmedUrl);
+                                        return trimmedUrl;
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning("⚠️ Entry URL is not a valid YouTube URL for search query '{SearchQuery}': {Url}", searchQuery, trimmedUrl);
+                                    }
+                                }
+                                
+                                break; // Only process the first entry
+                            }
+                        }
+                    }
+                }
             }
 
-            _logger.LogWarning("Search completed but no URL found for query: {SearchQuery}", searchQuery);
+            // Fallback to root level data if no entries found
+            // Construct YouTube URL from video ID if available - with validation
+            if (!string.IsNullOrWhiteSpace(result.Data?.ID))
+            {
+                var videoId = result.Data.ID.Trim();
+                
+                // Validate video ID format (YouTube video IDs are typically 11 characters, alphanumeric + - _)
+                if (videoId.Length == 11 && videoId.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'))
+                {
+                    var constructedUrl = $"https://www.youtube.com/watch?v={videoId}";
+                    _logger.LogInformation("✅ Constructed valid YouTube URL from root video ID for '{SearchQuery}': {Url}", searchQuery, constructedUrl);
+                    return constructedUrl;
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Invalid root video ID format '{VideoId}' for search query '{SearchQuery}' - length: {Length}", 
+                        videoId, searchQuery, videoId.Length);
+                }
+            }
+
+            // Fallback to WebpageUrl if video ID construction failed
+            var webpageUrl = result.Data?.WebpageUrl?.Trim();
+            if (!string.IsNullOrWhiteSpace(webpageUrl))
+            {
+                // Validate that it's actually a YouTube URL
+                if (webpageUrl.Contains("youtube.com/watch") || webpageUrl.Contains("youtu.be/"))
+                {
+                    _logger.LogInformation("✅ Using root WebpageUrl for search query '{SearchQuery}': {Url}", searchQuery, webpageUrl);
+                    return webpageUrl;
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Root WebpageUrl is not a valid YouTube URL for search query '{SearchQuery}': {Url}", searchQuery, webpageUrl);
+                }
+            }
+
+            _logger.LogError("❌ No valid YouTube URL found for search query '{SearchQuery}' - both entry and root level data were invalid or missing", searchQuery);
             return null;
         }
         catch (Exception ex)
