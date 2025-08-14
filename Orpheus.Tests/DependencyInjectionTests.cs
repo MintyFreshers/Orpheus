@@ -36,7 +36,7 @@ public class DependencyInjectionTests
         services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
         services.AddSingleton<IVoiceClientController, VoiceClientController>();
         services.AddSingleton<IWakeWordDetectionService, PicovoiceWakeWordService>();
-        services.AddSingleton<ITranscriptionService, WhisperTranscriptionService>();
+        services.AddSingleton<ITranscriptionService, AzureSpeechTranscriptionService>();
         services.AddSingleton<IVoiceCommandProcessor, VoiceCommandProcessor>();
         services.AddSingleton<BotConfiguration>();
         services.AddSingleton<WakeWordResponseHandler>();
