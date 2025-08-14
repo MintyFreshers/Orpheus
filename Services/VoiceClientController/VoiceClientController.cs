@@ -123,13 +123,26 @@ public class VoiceClientController : IVoiceClientController
         if (!IsBotInVoiceChannel(guild, client.Id) || _voiceClient == null)
         {
             _logger.LogDebug("Bot not in voice channel, attempting to join...");
-            var joinResult = await JoinVoiceChannelOfUserAsync(guild, client, userId);
-            if (_voiceClient == null)
+            try
             {
-                _logger.LogWarning("Voice client was not initialized after join attempt. Join result: {Result}", joinResult);
-                return joinResult;
+                var joinResult = await JoinVoiceChannelOfUserAsync(guild, client, userId);
+                _logger.LogDebug("Join attempt completed with result: {Result}", joinResult);
+                if (_voiceClient == null)
+                {
+                    _logger.LogWarning("Voice client was not initialized after join attempt. Join result: {Result}", joinResult);
+                    return joinResult;
+                }
+                _logger.LogDebug("Successfully joined voice channel for playback");
             }
-            _logger.LogDebug("Successfully joined voice channel for playback");
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception occurred while joining voice channel");
+                return $"Failed to join voice channel: {ex.Message}";
+            }
+        }
+        else
+        {
+            _logger.LogDebug("Bot is already in voice channel, proceeding with playback");
         }
 
         if (!File.Exists(filePath))
@@ -155,6 +168,7 @@ public class VoiceClientController : IVoiceClientController
             
             _logger.LogDebug("Creating opus output stream...");
             var outputStream = CreateOpusOutputStream();
+            _logger.LogDebug("Opus output stream created successfully");
             
             _logger.LogDebug("Starting audio playback task...");
             // Start playback as a fire-and-forget task but ensure proper prioritization
