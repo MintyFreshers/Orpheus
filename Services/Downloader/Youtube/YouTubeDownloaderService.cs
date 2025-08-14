@@ -58,6 +58,14 @@ public class YouTubeDownloaderService : IYouTubeDownloader
         return FindDownloadedFile(filesBefore, result, url);
     }
 
+    public async Task<string?> DownloadAsync(string url, string? knownTitle)
+    {
+        _logger.LogInformation("Starting download for URL: {Url} with known title: {Title}", url, knownTitle ?? "(null)");
+        
+        // Delegate to the regular download method - the title is used by the cached service
+        return await DownloadAsync(url);
+    }
+
     public async Task<string?> GetVideoTitleAsync(string url)
     {
         _logger.LogDebug("Getting video title for URL: {Url}", url);

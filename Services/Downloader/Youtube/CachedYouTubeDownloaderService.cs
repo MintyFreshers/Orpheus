@@ -23,6 +23,12 @@ public class CachedYouTubeDownloaderService : IYouTubeDownloader
 
     public async Task<string?> DownloadAsync(string url)
     {
+        // Delegate to the overload with null known title
+        return await DownloadAsync(url, null);
+    }
+
+    public async Task<string?> DownloadAsync(string url, string? knownTitle)
+    {
         string? uniqueId = null;
         string downloadUrl = url; // The URL to actually download from
 
@@ -38,7 +44,7 @@ public class CachedYouTubeDownloaderService : IYouTubeDownloader
             if (string.IsNullOrWhiteSpace(resolvedUrl))
             {
                 _logger.LogWarning("Could not resolve search URL: {Url}. Bypassing cache.", url);
-                return await _baseDownloader.DownloadAsync(url);
+                return await _baseDownloader.DownloadAsync(url, knownTitle);
             }
             
             downloadUrl = resolvedUrl; // Use resolved URL for download
@@ -55,7 +61,7 @@ public class CachedYouTubeDownloaderService : IYouTubeDownloader
         if (string.IsNullOrEmpty(uniqueId))
         {
             _logger.LogWarning("Could not extract unique ID from URL: {Url}. Bypassing cache.", downloadUrl);
-            return await _baseDownloader.DownloadAsync(downloadUrl);
+            return await _baseDownloader.DownloadAsync(downloadUrl, knownTitle);
         }
 
         _logger.LogDebug("Checking cache for video ID: {UniqueId} (URL: {Url})", uniqueId, downloadUrl);
@@ -72,15 +78,26 @@ public class CachedYouTubeDownloaderService : IYouTubeDownloader
         _logger.LogDebug("Cache miss for {UniqueId}, downloading...", uniqueId);
 
         // Not cached, download using base downloader with resolved URL
-        var filePath = await _baseDownloader.DownloadAsync(downloadUrl);
+        var filePath = await _baseDownloader.DownloadAsync(downloadUrl, knownTitle);
         if (string.IsNullOrEmpty(filePath))
         {
             _logger.LogWarning("Download failed for URL: {Url}", downloadUrl);
             return null;
         }
 
-        // Get title for better cache metadata (use resolved URL for metadata)
-        var title = await GetVideoTitleAsync(downloadUrl) ?? "Unknown Title";
+        // Use known title if available, otherwise fetch it
+        string title;
+        if (!string.IsNullOrWhiteSpace(knownTitle))
+        {
+            title = knownTitle;
+            _logger.LogDebug("Using known title for caching: {Title}", title);
+        }
+        else
+        {
+            // Get title for better cache metadata (use resolved URL for metadata)
+            title = await GetVideoTitleAsync(downloadUrl) ?? "Unknown Title";
+            _logger.LogDebug("Fetched title for caching: {Title}", title);
+        }
 
         // Add to cache using resolved URL for better metadata
         var cacheSuccess = await _cacheService.AddToCacheAsync(uniqueId, title, downloadUrl, filePath);
@@ -186,15 +203,6 @@ public class CachedYouTubeDownloaderService : IYouTubeDownloader
             else
             {
                 _logger.LogDebug("Search result for '{SearchQuery}' not cached, will be downloaded: {Url}", searchQuery, searchResult.Url);
-                
-                // If we have a title from search but no cached entry, we could pre-populate the cache metadata here
-                // This would make future operations faster
-                if (!string.IsNullOrEmpty(searchResult.Title))
-                {
-                    _logger.LogDebug("Pre-caching metadata from search for {UniqueId}: {Title}", uniqueId, searchResult.Title);
-                    // Note: We don't have the file path yet, so we can't fully cache, but we could implement
-                    // a metadata-only cache in the future for even better performance
-                }
             }
         }
         else

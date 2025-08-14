@@ -315,7 +315,15 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
         {
             _logger.LogDebug("Background downloading: {Title}", song.Title);
             
-            var filePath = await _downloader.DownloadAsync(song.Url);
+            // Pass the known title to avoid redundant API calls when the title is not a placeholder
+            string? knownTitle = null;
+            if (!IsPlaceholderTitle(song.Title))
+            {
+                knownTitle = song.Title;
+                _logger.LogDebug("Using known title from search results: {Title}", knownTitle);
+            }
+            
+            var filePath = await _downloader.DownloadAsync(song.Url, knownTitle);
             if (!string.IsNullOrWhiteSpace(filePath))
             {
                 song.FilePath = filePath;
@@ -352,5 +360,10 @@ public class BackgroundDownloadService : BackgroundService, IBackgroundDownloadS
         _downloadSemaphore?.Dispose();
         _metadataSemaphore?.Dispose();
         base.Dispose();
+    }
+
+    private static bool IsPlaceholderTitle(string title)
+    {
+        return title == "YouTube Video" || title == "Audio Track" || title.StartsWith("Found: ");
     }
 }
