@@ -7,6 +7,7 @@ using Orpheus.Services.Transcription;
 using Orpheus.Services.VoiceClientController;
 using Orpheus.Services.Queue;
 using Orpheus.Services.Downloader.Youtube;
+using Orpheus.Services;
 using System.Collections.Concurrent;
 using System.Linq;
 using Concentus;
@@ -32,6 +33,7 @@ public class WakeWordResponseHandler
     private readonly ISongQueueService _queueService;
     private readonly IQueuePlaybackService _queuePlaybackService;
     private readonly IYouTubeDownloader _downloader;
+    private readonly IMessageUpdateService _messageUpdateService;
     private readonly ConcurrentDictionary<ulong, UserTranscriptionSession> _activeSessions = new();
     private readonly ConcurrentDictionary<ulong, Queue<byte[]>> _audioBuffers = new();
     private readonly ConcurrentDictionary<ulong, int> _silenceFrameCounts = new();
@@ -45,7 +47,8 @@ public class WakeWordResponseHandler
         IServiceProvider serviceProvider,
         ISongQueueService queueService,
         IQueuePlaybackService queuePlaybackService,
-        IYouTubeDownloader downloader)
+        IYouTubeDownloader downloader,
+        IMessageUpdateService messageUpdateService)
     {
         _logger = logger;
         _discordConfiguration = discordConfiguration;
@@ -54,6 +57,7 @@ public class WakeWordResponseHandler
         _queueService = queueService;
         _queuePlaybackService = queuePlaybackService;
         _downloader = downloader;
+        _messageUpdateService = messageUpdateService;
         _opusDecoder = OpusCodecFactory.CreateDecoder(DiscordSampleRate, 1);
     }
 
@@ -231,10 +235,17 @@ public class WakeWordResponseHandler
     private async Task ProcessSuccessfulTranscriptionAsync(UserTranscriptionSession session, string transcription)
     {
         // Process all voice commands directly in WakeWordResponseHandler to avoid circular dependency
-        var response = await ProcessVoiceCommandAsync(transcription, session.UserId, session.Client);
+        var commandResult = await ProcessVoiceCommandAsync(transcription, session.UserId, session.Client);
 
         var channelId = _discordConfiguration.DefaultChannelId;
-        await session.Client.Rest.SendMessageAsync(channelId, new MessageProperties().WithContent(response));
+        var sentMessage = await session.Client.Rest.SendMessageAsync(channelId, new MessageProperties().WithContent(commandResult.Response));
+
+        // If this was a play command that added a song, register the message for updates
+        if (commandResult.SongId != null)
+        {
+            _logger.LogDebug("Registering voice command message {MessageId} for song updates: {SongId}", sentMessage.Id, commandResult.SongId);
+            await _messageUpdateService.RegisterMessageForSongUpdatesAsync(sentMessage.Id, channelId, session.Client, commandResult.SongId, commandResult.Response);
+        }
     }
 
     private async Task SendNoTranscriptionResponseAsync(UserTranscriptionSession session)
@@ -320,12 +331,12 @@ public class WakeWordResponseHandler
         return false;
     }
 
-    private async Task<string> ProcessVoiceCommandAsync(string transcription, ulong userId, GatewayClient client)
+    private async Task<VoiceCommandResult> ProcessVoiceCommandAsync(string transcription, ulong userId, GatewayClient client)
     {
         if (string.IsNullOrWhiteSpace(transcription))
         {
             _logger.LogWarning("Received empty transcription from user {UserId}", userId);
-            return CreateUserMentionResponse(userId, "I didn't hear anything clearly.");
+            return new VoiceCommandResult(CreateUserMentionResponse(userId, "I didn't hear anything clearly."));
         }
 
         var normalizedCommand = NormalizeVoiceCommand(transcription);
@@ -342,13 +353,13 @@ public class WakeWordResponseHandler
             if (guild == null)
             {
                 _logger.LogWarning("Could not find guild with user {UserId} in voice channel", userId);
-                return CreateUserMentionResponse(userId, "I couldn't determine which server you're in. Make sure you're in a voice channel.");
+                return new VoiceCommandResult(CreateUserMentionResponse(userId, "I couldn't determine which server you're in. Make sure you're in a voice channel."));
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get guild context for voice command");
-            return CreateUserMentionResponse(userId, "I couldn't determine the server context for this command.");
+            return new VoiceCommandResult(CreateUserMentionResponse(userId, "I couldn't determine the server context for this command."));
         }
 
         // First try advanced commands (play, leave, playtest)
@@ -362,7 +373,7 @@ public class WakeWordResponseHandler
         return ProcessBasicVoiceCommand(normalizedCommand, userId);
     }
 
-    private async Task<string?> TryProcessAdvancedVoiceCommandAsync(string normalizedCommand, ulong userId, GatewayClient client, Guild guild)
+    private async Task<VoiceCommandResult?> TryProcessAdvancedVoiceCommandAsync(string normalizedCommand, ulong userId, GatewayClient client, Guild guild)
     {
         if (string.IsNullOrWhiteSpace(normalizedCommand))
         {
@@ -377,7 +388,7 @@ public class WakeWordResponseHandler
             _logger.LogInformation("Recognized leave command from user {UserId}", userId);
             var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
             var result = await voiceClientController.LeaveVoiceChannelAsync(guild, client);
-            return CreateUserMentionResponse(userId, result);
+            return new VoiceCommandResult(CreateUserMentionResponse(userId, result));
         }
 
         // Handle "playtest" command - more flexible matching
@@ -388,12 +399,12 @@ public class WakeWordResponseHandler
             
             if (!File.Exists(testFilePath))
             {
-                return CreateUserMentionResponse(userId, $"Test file not found: {testFilePath}");
+                return new VoiceCommandResult(CreateUserMentionResponse(userId, $"Test file not found: {testFilePath}"));
             }
             
             var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
             var result = await voiceClientController.PlayMp3Async(guild, client, userId, testFilePath);
-            return CreateUserMentionResponse(userId, result);
+            return new VoiceCommandResult(CreateUserMentionResponse(userId, result));
         }
 
         // Handle "play <song>" command - more flexible matching
@@ -409,7 +420,7 @@ public class WakeWordResponseHandler
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing play command for query: {Query}", playQuery);
-                return CreateUserMentionResponse(userId, "Failed to add the song to the queue.");
+                return new VoiceCommandResult(CreateUserMentionResponse(userId, "Failed to add the song to the queue."));
             }
         }
 
@@ -417,7 +428,7 @@ public class WakeWordResponseHandler
         return null;
     }
 
-    private async Task<string> ProcessPlayCommandAsync(string query, ulong userId, Guild guild, GatewayClient client)
+    private async Task<VoiceCommandResult> ProcessPlayCommandAsync(string query, ulong userId, Guild guild, GatewayClient client)
     {
         string? url;
         string placeholderTitle;
@@ -438,7 +449,7 @@ public class WakeWordResponseHandler
             url = await _downloader.SearchAndGetFirstUrlAsync(query);
             if (url == null)
             {
-                return CreateUserMentionResponse(userId, $"❌ No results found for: **{query}**");
+                return new VoiceCommandResult(CreateUserMentionResponse(userId, $"❌ No results found for: **{query}**"));
             }
             
             _logger.LogInformation("Voice search found URL: {Url} for query: {Query}", url, query);
@@ -463,10 +474,10 @@ public class WakeWordResponseHandler
             await _queuePlaybackService.StartQueueProcessingAsync(guild, client, userId);
         }
 
-        return CreateUserMentionResponse(userId, message);
+        return new VoiceCommandResult(CreateUserMentionResponse(userId, message), queuedSong.Id);
     }
 
-    private string ProcessBasicVoiceCommand(string normalizedCommand, ulong userId)
+    private VoiceCommandResult ProcessBasicVoiceCommand(string normalizedCommand, ulong userId)
     {
         _logger.LogInformation("Processing basic voice command: '{Command}' from user {UserId}", normalizedCommand, userId);
 
@@ -475,25 +486,25 @@ public class WakeWordResponseHandler
         if (!string.IsNullOrEmpty(sayContent))
         {
             _logger.LogInformation("Recognized say command from user {UserId}: '{Content}'", userId, sayContent);
-            return CreateUserMentionResponse(userId, sayContent);
+            return new VoiceCommandResult(CreateUserMentionResponse(userId, sayContent));
         }
         
         // Handle greetings - more flexible matching
         if (IsGreetingCommand(normalizedCommand))
         {
             _logger.LogInformation("Recognized greeting from user {UserId}", userId);
-            return CreateUserMentionResponse(userId, "Hello there!");
+            return new VoiceCommandResult(CreateUserMentionResponse(userId, "Hello there!"));
         }
         
         // Handle ping command - more flexible matching
         if (IsPingCommand(normalizedCommand))
         {
             _logger.LogInformation("Recognized ping command from user {UserId}", userId);
-            return CreateUserMentionResponse(userId, "Pong!");
+            return new VoiceCommandResult(CreateUserMentionResponse(userId, "Pong!"));
         }
 
         _logger.LogInformation("Unrecognized basic command: '{Command}' from user {UserId}", normalizedCommand, userId);
-        return CreateUserMentionResponse(userId, "I don't understand that command. Try saying 'play [song]', 'leave', 'playtest', 'say hello', 'hello', or 'ping'.");
+        return new VoiceCommandResult(CreateUserMentionResponse(userId, "I don't understand that command. Try saying 'play [song]', 'leave', 'playtest', 'say hello', 'hello', or 'ping'."));
     }
 
     private static bool IsUrl(string input)
@@ -641,6 +652,8 @@ public class WakeWordResponseHandler
         return null;
     }
 }
+
+internal record VoiceCommandResult(string Response, string? SongId = null);
 
 internal class UserTranscriptionSession
 {
