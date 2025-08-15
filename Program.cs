@@ -165,7 +165,7 @@ internal class Program
         services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
         services.AddSingleton<IVoiceClientController, VoiceClientController>();
         services.AddSingleton<IWakeWordDetectionService, PicovoiceWakeWordService>();
-        services.AddSingleton<ITranscriptionService, WhisperTranscriptionService>();
+        services.AddSingleton<ITranscriptionService, AzureSpeechTranscriptionService>();
         services.AddSingleton<BotConfiguration>();
         services.AddSingleton<WakeWordResponseHandler>();
         services.AddSingleton<IMessageUpdateService, MessageUpdateService>();
