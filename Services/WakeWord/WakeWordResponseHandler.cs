@@ -164,14 +164,29 @@ public class WakeWordResponseHandler
     {
         var session = CreateNewTranscriptionSession(userId, client);
         
-        // Don't clear the buffer immediately - preserve any audio that might have been captured
-        // during the beep playback that could be the start of the user's command
-        _logger.LogDebug("Preserving audio buffer for user {UserId} to avoid cutting off speech", userId);
+        // Copy buffered audio frames to the transcription session to avoid cutting off speech
+        if (_audioBuffers.TryGetValue(userId, out var buffer) && buffer.Count > 0)
+        {
+            _logger.LogDebug("Adding {FrameCount} buffered audio frames to transcription session for user {UserId}", buffer.Count, userId);
+            
+            // Convert all buffered Opus frames to PCM and add to session
+            foreach (var opusFrame in buffer)
+            {
+                var pcmBytes = ConvertOpusFrameToPcmBytes(opusFrame);
+                session.AudioData.AddRange(pcmBytes);
+            }
+            
+            _logger.LogInformation("Added {AudioDataSize} bytes of buffered audio to transcription session for user {UserId}", session.AudioData.Count, userId);
+        }
+        else
+        {
+            _logger.LogDebug("No buffered audio available for user {UserId}", userId);
+        }
         
         _activeSessions[userId] = session;
         _silenceFrameCounts[userId] = 0;
 
-        // Add a small delay to give the user time to start speaking after the beep completes
+        // Add a small delay to give the user time to continue speaking after the beep completes
         await Task.Delay(50); // 50ms delay to ensure user can start speaking
         
         // Create cancellation token source for this session's timeout
@@ -179,7 +194,7 @@ public class WakeWordResponseHandler
         _sessionTimeoutCancellations[userId] = timeoutCancellation;
 
         await ScheduleSessionTimeoutAsync(userId, timeoutCancellation.Token);
-        _logger.LogInformation("Started fresh transcription session for user {UserId} with preserved audio buffer", userId);
+        _logger.LogInformation("Started transcription session for user {UserId} with buffered audio included", userId);
     }
 
     private void BufferAudioFrame(byte[] opusFrame, ulong userId)
