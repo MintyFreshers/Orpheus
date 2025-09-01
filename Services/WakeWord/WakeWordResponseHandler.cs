@@ -38,6 +38,7 @@ public class WakeWordResponseHandler
     private readonly ConcurrentDictionary<ulong, Queue<byte[]>> _audioBuffers = new();
     private readonly ConcurrentDictionary<ulong, int> _silenceFrameCounts = new();
     private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _sessionTimeoutCancellations = new();
+    private readonly ConcurrentDictionary<ulong, Queue<byte[]>> _frozenBuffers = new();
     private readonly IOpusDecoder _opusDecoder;
 
     public WakeWordResponseHandler(
@@ -71,12 +72,15 @@ public class WakeWordResponseHandler
 
         try
         {
-            _logger.LogInformation("Wake word detected from user {UserId}, playing acknowledgment and starting transcription", userId);
+            _logger.LogInformation("Wake word detected from user {UserId}, freezing audio buffer and starting acknowledgment", userId);
+
+            // IMMEDIATELY freeze the current audio buffer to preserve speech that happened right after wake word
+            FreezeAudioBufferForUser(userId);
 
             // Play wake word acknowledgment sound and wait for it to complete
             await PlayWakeWordAcknowledgmentAsync(userId, client);
 
-            // Now start transcription with proper timing
+            // Now start transcription with the frozen buffer
             await InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);
         }
         catch (Exception ex)
@@ -164,23 +168,23 @@ public class WakeWordResponseHandler
     {
         var session = CreateNewTranscriptionSession(userId, client);
         
-        // Copy buffered audio frames to the transcription session to avoid cutting off speech
-        if (_audioBuffers.TryGetValue(userId, out var buffer) && buffer.Count > 0)
+        // Use the frozen buffer that was captured at wake word detection time
+        if (_frozenBuffers.TryRemove(userId, out var frozenBuffer) && frozenBuffer.Count > 0)
         {
-            _logger.LogDebug("Adding {FrameCount} buffered audio frames to transcription session for user {UserId}", buffer.Count, userId);
+            _logger.LogDebug("Adding {FrameCount} frozen audio frames to transcription session for user {UserId}", frozenBuffer.Count, userId);
             
-            // Convert all buffered Opus frames to PCM and add to session
-            foreach (var opusFrame in buffer)
+            // Convert all frozen Opus frames to PCM and add to session
+            foreach (var opusFrame in frozenBuffer)
             {
                 var pcmBytes = ConvertOpusFrameToPcmBytes(opusFrame);
                 session.AudioData.AddRange(pcmBytes);
             }
             
-            _logger.LogInformation("Added {AudioDataSize} bytes of buffered audio to transcription session for user {UserId}", session.AudioData.Count, userId);
+            _logger.LogInformation("Added {AudioDataSize} bytes of frozen buffered audio to transcription session for user {UserId}", session.AudioData.Count, userId);
         }
         else
         {
-            _logger.LogDebug("No buffered audio available for user {UserId}", userId);
+            _logger.LogDebug("No frozen buffered audio available for user {UserId}", userId);
         }
         
         _activeSessions[userId] = session;
@@ -194,7 +198,7 @@ public class WakeWordResponseHandler
         _sessionTimeoutCancellations[userId] = timeoutCancellation;
 
         await ScheduleSessionTimeoutAsync(userId, timeoutCancellation.Token);
-        _logger.LogInformation("Started transcription session for user {UserId} with buffered audio included", userId);
+        _logger.LogInformation("Started transcription session for user {UserId} with frozen buffered audio included", userId);
     }
 
     private void BufferAudioFrame(byte[] opusFrame, ulong userId)
@@ -210,6 +214,21 @@ public class WakeWordResponseHandler
         while (buffer.Count > MaxBufferedFrames)
         {
             buffer.Dequeue();
+        }
+    }
+
+    private void FreezeAudioBufferForUser(ulong userId)
+    {
+        if (_audioBuffers.TryGetValue(userId, out var buffer) && buffer.Count > 0)
+        {
+            // Create a copy of the current buffer state to freeze it
+            var frozenBuffer = new Queue<byte[]>(buffer);
+            _frozenBuffers[userId] = frozenBuffer;
+            _logger.LogDebug("Frozen {FrameCount} audio frames for user {UserId} at wake word detection", frozenBuffer.Count, userId);
+        }
+        else
+        {
+            _logger.LogDebug("No audio buffer to freeze for user {UserId}", userId);
         }
     }
 
@@ -256,6 +275,12 @@ public class WakeWordResponseHandler
             _logger.LogInformation("Ending transcription session for user {UserId} (reason: {Reason})", userId, reason);
             
             _silenceFrameCounts.TryRemove(userId, out _);
+            
+            // Clean up any leftover frozen buffer
+            if (_frozenBuffers.TryRemove(userId, out _))
+            {
+                _logger.LogDebug("Cleaned up leftover frozen buffer for user {UserId}", userId);
+            }
             
             // Clean up cancellation token if it exists
             if (_sessionTimeoutCancellations.TryRemove(userId, out var cancellationSource))
