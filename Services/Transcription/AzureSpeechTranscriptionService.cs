@@ -179,9 +179,9 @@ public class AzureSpeechTranscriptionService : ITranscriptionService, IDisposabl
             // Create a new recognizer for this recognition session
             using var recognizer = new SpeechRecognizer(_speechConfig!, audioConfig);
             
-            // Set up recognition result handling - collect all partial results and use the final one
+            // Set up recognition result handling - collect all speech segments and combine them
             var recognitionCompletionSource = new TaskCompletionSource<string?>();
-            string? lastRecognizedText = null;
+            var recognizedSegments = new List<string>();
 
             recognizer.Recognized += (s, e) =>
             {
@@ -190,8 +190,8 @@ public class AzureSpeechTranscriptionService : ITranscriptionService, IDisposabl
                     var transcription = e.Result.Text.Trim();
                     _logger.LogInformation("Azure Speech transcribed: {Text}", transcription);
                     
-                    // Keep updating with the latest recognition result instead of just using the first one
-                    lastRecognizedText = transcription;
+                    // Collect all speech segments instead of overwriting
+                    recognizedSegments.Add(transcription);
                 }
                 else
                 {
@@ -202,15 +202,17 @@ public class AzureSpeechTranscriptionService : ITranscriptionService, IDisposabl
             recognizer.Canceled += (s, e) =>
             {
                 _logger.LogWarning("Azure Speech recognition cancelled: {Reason} - {Error}", e.Reason, e.ErrorDetails);
-                // Use the last recognized text if available, even if session was cancelled
-                recognitionCompletionSource.TrySetResult(lastRecognizedText);
+                // Combine all recognized segments when session is cancelled
+                var combinedResult = string.Join(" ", recognizedSegments).Trim();
+                recognitionCompletionSource.TrySetResult(string.IsNullOrWhiteSpace(combinedResult) ? null : combinedResult);
             };
 
             recognizer.SessionStopped += (s, e) =>
             {
                 _logger.LogDebug("Azure Speech recognition session stopped");
-                // Use the last recognized text when session stops
-                recognitionCompletionSource.TrySetResult(lastRecognizedText);
+                // Combine all recognized segments when session stops
+                var combinedResult = string.Join(" ", recognizedSegments).Trim();
+                recognitionCompletionSource.TrySetResult(string.IsNullOrWhiteSpace(combinedResult) ? null : combinedResult);
             };
 
             // Start recognition

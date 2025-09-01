@@ -20,7 +20,7 @@ public class WakeWordResponseHandler
     private const int TranscriptionTimeoutMs = 8000;
     private const int FrameLengthMs = 20;
     private const int DiscordFrameSize = DiscordSampleRate / 1000 * FrameLengthMs;
-    private const int AudioBufferDurationMs = 3000; // Increased from 1000ms to capture longer commands
+    private const int AudioBufferDurationMs = 2000; // Reduced from 3000ms to focus on voice commands only
     private const int MaxBufferedFrames = AudioBufferDurationMs / FrameLengthMs;
     private const int SilenceDetectionMs = 2000; // Increased to 2000ms to allow for natural pauses between wake word and command
     private const int SilenceFrameThreshold = SilenceDetectionMs / FrameLengthMs;
@@ -175,36 +175,20 @@ public class WakeWordResponseHandler
     {
         var session = CreateNewTranscriptionSession(userId, client);
         
-        // Use the live buffer to capture speech that happens during acknowledgment playback
-        if (_audioBuffers.TryGetValue(userId, out var buffer) && buffer.Count > 0)
-        {
-            _logger.LogDebug("Adding {FrameCount} buffered audio frames to transcription session for user {UserId}", buffer.Count, userId);
-            
-            // Convert all buffered Opus frames to PCM and add to session
-            foreach (var opusFrame in buffer)
-            {
-                var pcmBytes = ConvertOpusFrameToPcmBytes(opusFrame);
-                session.AudioData.AddRange(pcmBytes);
-            }
-            
-            _logger.LogInformation("Added {AudioDataSize} bytes of buffered audio to transcription session for user {UserId}", session.AudioData.Count, userId);
-        }
-        else
-        {
-            _logger.LogDebug("No buffered audio available for user {UserId}", userId);
-        }
+        // Clear the buffer to avoid including ambient conversation from before the wake word
+        // We only want to capture the voice command that comes AFTER the wake word detection
+        ClearUserAudioBuffer(userId);
+        _logger.LogDebug("Cleared audio buffer for user {UserId} - starting fresh transcription session", userId);
         
         _activeSessions[userId] = session;
         _silenceFrameCounts[userId] = 0;
 
-        // No delay needed - transcription starts immediately alongside acknowledgment sound
-        
         // Create cancellation token source for this session's timeout
         var timeoutCancellation = new CancellationTokenSource();
         _sessionTimeoutCancellations[userId] = timeoutCancellation;
 
         await ScheduleSessionTimeoutAsync(userId, timeoutCancellation.Token);
-        _logger.LogInformation("Started transcription session for user {UserId} immediately with buffered audio included", userId);
+        _logger.LogInformation("Started transcription session for user {UserId} with cleared audio buffer to capture fresh voice command", userId);
     }
 
     private void BufferAudioFrame(byte[] opusFrame, ulong userId)
