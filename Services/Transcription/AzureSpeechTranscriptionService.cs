@@ -179,8 +179,9 @@ public class AzureSpeechTranscriptionService : ITranscriptionService, IDisposabl
             // Create a new recognizer for this recognition session
             using var recognizer = new SpeechRecognizer(_speechConfig!, audioConfig);
             
-            // Set up recognition result handling
+            // Set up recognition result handling - collect all partial results and use the final one
             var recognitionCompletionSource = new TaskCompletionSource<string?>();
+            string? lastRecognizedText = null;
 
             recognizer.Recognized += (s, e) =>
             {
@@ -188,31 +189,28 @@ public class AzureSpeechTranscriptionService : ITranscriptionService, IDisposabl
                 {
                     var transcription = e.Result.Text.Trim();
                     _logger.LogInformation("Azure Speech transcribed: {Text}", transcription);
-                    recognitionCompletionSource.TrySetResult(transcription);
+                    
+                    // Keep updating with the latest recognition result instead of just using the first one
+                    lastRecognizedText = transcription;
                 }
                 else
                 {
                     _logger.LogDebug("Azure Speech recognition result: {Reason}", e.Result.Reason);
-                    if (!recognitionCompletionSource.Task.IsCompleted)
-                    {
-                        recognitionCompletionSource.TrySetResult(null);
-                    }
                 }
             };
 
             recognizer.Canceled += (s, e) =>
             {
                 _logger.LogWarning("Azure Speech recognition cancelled: {Reason} - {Error}", e.Reason, e.ErrorDetails);
-                recognitionCompletionSource.TrySetResult(null);
+                // Use the last recognized text if available, even if session was cancelled
+                recognitionCompletionSource.TrySetResult(lastRecognizedText);
             };
 
             recognizer.SessionStopped += (s, e) =>
             {
                 _logger.LogDebug("Azure Speech recognition session stopped");
-                if (!recognitionCompletionSource.Task.IsCompleted)
-                {
-                    recognitionCompletionSource.TrySetResult(null);
-                }
+                // Use the last recognized text when session stops
+                recognitionCompletionSource.TrySetResult(lastRecognizedText);
             };
 
             // Start recognition
