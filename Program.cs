@@ -164,7 +164,8 @@ internal class Program
         services.AddHostedService<BackgroundDownloadService>(provider => provider.GetRequiredService<BackgroundDownloadService>());
         services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
         services.AddSingleton<IVoiceClientController, VoiceClientController>();
-        services.AddSingleton<IWakeWordDetectionService, PicovoiceWakeWordService>();
+        services.AddSingleton<IWakeWordDetectionService, ImprovedPicovoiceWakeWordService>();
+        services.AddSingleton<WakeWordConfiguration>();
         services.AddSingleton<ITranscriptionService, AzureSpeechTranscriptionService>();
         services.AddSingleton<BotConfiguration>();
         services.AddSingleton<WakeWordResponseHandler>();
