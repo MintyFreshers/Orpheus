@@ -28,7 +28,6 @@ public class WakeWordResponseHandlerTests
         var queuePlaybackService = Mock.Of<IQueuePlaybackService>();
         var downloader = Mock.Of<IYouTubeDownloader>();
         var messageUpdateService = Mock.Of<IMessageUpdateService>();
-        var voiceClientController = Mock.Of<IVoiceClientController>();
 
         // Act & Assert
         var handler = new WakeWordResponseHandler(
@@ -39,8 +38,7 @@ public class WakeWordResponseHandlerTests
             queueService,
             queuePlaybackService,
             downloader,
-            messageUpdateService,
-            voiceClientController);
+            messageUpdateService);
             
         Assert.NotNull(handler);
     }

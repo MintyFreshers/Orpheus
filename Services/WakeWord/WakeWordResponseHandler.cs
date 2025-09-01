@@ -34,7 +34,6 @@ public class WakeWordResponseHandler
     private readonly IQueuePlaybackService _queuePlaybackService;
     private readonly IYouTubeDownloader _downloader;
     private readonly IMessageUpdateService _messageUpdateService;
-    private readonly IVoiceClientController _voiceClientController;
     private readonly ConcurrentDictionary<ulong, UserTranscriptionSession> _activeSessions = new();
     private readonly ConcurrentDictionary<ulong, Queue<byte[]>> _audioBuffers = new();
     private readonly ConcurrentDictionary<ulong, int> _silenceFrameCounts = new();
@@ -49,8 +48,7 @@ public class WakeWordResponseHandler
         ISongQueueService queueService,
         IQueuePlaybackService queuePlaybackService,
         IYouTubeDownloader downloader,
-        IMessageUpdateService messageUpdateService,
-        IVoiceClientController voiceClientController)
+        IMessageUpdateService messageUpdateService)
     {
         _logger = logger;
         _discordConfiguration = discordConfiguration;
@@ -60,7 +58,6 @@ public class WakeWordResponseHandler
         _queuePlaybackService = queuePlaybackService;
         _downloader = downloader;
         _messageUpdateService = messageUpdateService;
-        _voiceClientController = voiceClientController;
         _opusDecoder = OpusCodecFactory.CreateDecoder(DiscordSampleRate, 1);
     }
 
@@ -116,7 +113,8 @@ public class WakeWordResponseHandler
             {
                 try
                 {
-                    await _voiceClientController.PlayMp3Async(guild, client, userId, acknowledgmentPath);
+                    var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+                    await voiceClientController.PlayMp3Async(guild, client, userId, acknowledgmentPath);
                     _logger.LogDebug("Wake word acknowledgment sound completed for user {UserId}", userId);
                 }
                 catch (Exception ex)
