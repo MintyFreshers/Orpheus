@@ -9,6 +9,7 @@ public class AudioPlaybackService : IAudioPlaybackService
     private readonly ILogger<AudioPlaybackService> _logger;
     private Process? _currentFfmpegProcess;
     private readonly object _lock = new();
+    private bool _isDucked = false;
 
     public event Action? PlaybackCompleted;
 
@@ -145,6 +146,40 @@ public class AudioPlaybackService : IAudioPlaybackService
                 throw;
             }
         }, cancellationToken);
+    }
+
+    public async Task PlayDuckedOverlayMp3Async(string filePath, OpusEncodeStream outputStream, CancellationToken cancellationToken = default)
+    {
+        // Enable ducking for background music, then play overlay
+        _logger.LogDebug("Starting ducked overlay playback for file: {FilePath}", filePath);
+        
+        SetDucking(true);
+        
+        try
+        {
+            await PlayOverlayMp3Async(filePath, outputStream, cancellationToken);
+        }
+        finally
+        {
+            // Note: Ducking is intentionally NOT disabled here - it will be disabled when transcription completes
+            _logger.LogDebug("Ducked overlay playback completed for file: {FilePath} (ducking remains active)", filePath);
+        }
+    }
+
+    public void SetDucking(bool enabled)
+    {
+        lock (_lock)
+        {
+            if (_isDucked == enabled)
+                return;
+                
+            _isDucked = enabled;
+            _logger.LogInformation("Audio ducking {Status}", enabled ? "enabled" : "disabled");
+            
+            // Note: In a more advanced implementation, this would use ffmpeg filters
+            // to actually reduce volume of the main process. For now, this serves
+            // as a framework for future enhancement.
+        }
     }
 
     public Task StopPlaybackAsync()
