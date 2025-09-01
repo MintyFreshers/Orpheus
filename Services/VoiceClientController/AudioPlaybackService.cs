@@ -10,6 +10,7 @@ public class AudioPlaybackService : IAudioPlaybackService
     private Process? _currentFfmpegProcess;
     private readonly object _lock = new();
     private bool _isDucked = false;
+    private const float DuckedVolumeMultiplier = 0.2f; // Reduce to 20% volume when ducked
 
     public event Action? PlaybackCompleted;
 
@@ -40,7 +41,18 @@ public class AudioPlaybackService : IAudioPlaybackService
 
             _logger.LogDebug("Preparing to start FFMPEG for file: {FilePath}", filePath);
 
-            var startInfo = CreateFfmpegProcessStartInfo(filePath);
+            // Apply ducking volume if currently ducked
+            float volumeMultiplier = 1.0f;
+            lock (_lock)
+            {
+                if (_isDucked)
+                {
+                    volumeMultiplier = DuckedVolumeMultiplier;
+                    _logger.LogDebug("Applying ducked volume ({Volume}x) for main audio playback", volumeMultiplier);
+                }
+            }
+
+            var startInfo = CreateFfmpegProcessStartInfo(filePath, volumeMultiplier);
 
             try
             {
@@ -184,11 +196,13 @@ public class AudioPlaybackService : IAudioPlaybackService
                 return;
                 
             _isDucked = enabled;
-            _logger.LogInformation("Audio ducking {Status}", enabled ? "enabled" : "disabled");
+            _logger.LogInformation("Audio ducking {Status} - background music volume {VolumeDescription}", 
+                enabled ? "enabled" : "disabled",
+                enabled ? $"reduced to {DuckedVolumeMultiplier * 100:F0}%" : "restored to 100%");
             
-            // Note: In a more advanced implementation, this would use ffmpeg filters
-            // to actually reduce volume of the main process. For now, this serves
-            // as a framework for future enhancement.
+            // Note: For active playback, the volume change will take effect on the next song.
+            // Real-time volume adjustment would require more complex ffmpeg filter manipulation
+            // or using a different audio processing approach.
         }
     }
 
