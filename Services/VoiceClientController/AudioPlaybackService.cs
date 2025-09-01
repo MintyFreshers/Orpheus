@@ -9,6 +9,7 @@ public class AudioPlaybackService : IAudioPlaybackService
     private readonly ILogger<AudioPlaybackService> _logger;
     private Process? _currentFfmpegProcess;
     private readonly object _lock = new();
+    private bool _isDucked = false;
 
     public event Action? PlaybackCompleted;
 
@@ -83,6 +84,114 @@ public class AudioPlaybackService : IAudioPlaybackService
         }, cancellationToken);
     }
 
+    public async Task PlayOverlayMp3Async(string filePath, OpusEncodeStream outputStream, CancellationToken cancellationToken = default)
+    {
+        await PlayOverlayMp3Async(filePath, outputStream, 1.0f, cancellationToken);
+    }
+
+    public async Task PlayOverlayMp3Async(string filePath, OpusEncodeStream outputStream, float volumeMultiplier, CancellationToken cancellationToken = default)
+    {
+        // Don't stop current playback for overlay sounds - just play on top
+        _logger.LogDebug("Starting overlay playback for file: {FilePath}", filePath);
+
+        await Task.Run(async () =>
+        {
+            // Set high priority for audio streaming thread
+            try
+            {
+                Thread.CurrentThread.Priority = ThreadPriority.AboveNormal; // Higher priority for overlay sounds
+                _logger.LogDebug("Set overlay audio streaming thread priority to AboveNormal");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to set overlay streaming thread priority");
+            }
+
+            _logger.LogDebug("Preparing to start FFMPEG for overlay file: {FilePath} with volume: {Volume}x", filePath, volumeMultiplier);
+
+            var startInfo = CreateFfmpegProcessStartInfo(filePath, volumeMultiplier);
+
+            try
+            {
+                var ffmpeg = new Process { StartInfo = startInfo };
+                ffmpeg.Start();
+                SetProcessPriority(ffmpeg);
+
+                _logger.LogInformation("FFMPEG process started for overlay file: {FilePath}", filePath);
+
+                var stderrTask = ffmpeg.StandardError.ReadToEndAsync();
+
+                // Use smaller buffer size for overlay audio to reduce latency
+                var bufferSize = 16384;
+                await ffmpeg.StandardOutput.BaseStream.CopyToAsync(outputStream, bufferSize, cancellationToken);
+                await outputStream.FlushAsync(cancellationToken);
+
+                _logger.LogInformation("Finished streaming overlay audio for file: {FilePath}", filePath);
+
+                await ffmpeg.WaitForExitAsync(cancellationToken);
+
+                var stderr = await stderrTask;
+                if (!string.IsNullOrWhiteSpace(stderr))
+                {
+                    _logger.LogWarning("FFMPEG stderr for overlay file {FilePath}: {Stderr}", filePath, stderr);
+                }
+
+                if (ffmpeg.ExitCode != 0)
+                {
+                    _logger.LogWarning("FFMPEG exited with non-zero code {ExitCode} for overlay file: {FilePath}", ffmpeg.ExitCode, filePath);
+                }
+                else
+                {
+                    _logger.LogDebug("FFMPEG overlay completed successfully for file: {FilePath}", filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while streaming overlay audio for file: {FilePath}", filePath);
+                throw;
+            }
+        }, cancellationToken);
+    }
+
+    public async Task PlayDuckedOverlayMp3Async(string filePath, OpusEncodeStream outputStream, CancellationToken cancellationToken = default)
+    {
+        await PlayDuckedOverlayMp3Async(filePath, outputStream, 1.0f, cancellationToken);
+    }
+
+    public async Task PlayDuckedOverlayMp3Async(string filePath, OpusEncodeStream outputStream, float volumeMultiplier, CancellationToken cancellationToken = default)
+    {
+        // Enable ducking for background music, then play overlay
+        _logger.LogDebug("Starting ducked overlay playback for file: {FilePath} with volume: {Volume}x", filePath, volumeMultiplier);
+        
+        SetDucking(true);
+        
+        try
+        {
+            await PlayOverlayMp3Async(filePath, outputStream, volumeMultiplier, cancellationToken);
+        }
+        finally
+        {
+            // Note: Ducking is intentionally NOT disabled here - it will be disabled when transcription completes
+            _logger.LogDebug("Ducked overlay playback completed for file: {FilePath} (ducking remains active)", filePath);
+        }
+    }
+
+    public void SetDucking(bool enabled)
+    {
+        lock (_lock)
+        {
+            if (_isDucked == enabled)
+                return;
+                
+            _isDucked = enabled;
+            _logger.LogInformation("Audio ducking {Status}", enabled ? "enabled" : "disabled");
+            
+            // Note: In a more advanced implementation, this would use ffmpeg filters
+            // to actually reduce volume of the main process. For now, this serves
+            // as a framework for future enhancement.
+        }
+    }
+
     public Task StopPlaybackAsync()
     {
         lock (_lock)
@@ -104,7 +213,7 @@ public class AudioPlaybackService : IAudioPlaybackService
         return Task.CompletedTask;
     }
 
-    private ProcessStartInfo CreateFfmpegProcessStartInfo(string filePath)
+    private ProcessStartInfo CreateFfmpegProcessStartInfo(string filePath, float volumeMultiplier = 1.0f)
     {
         var startInfo = new ProcessStartInfo("ffmpeg")
         {
@@ -136,6 +245,14 @@ public class AudioPlaybackService : IAudioPlaybackService
         arguments.Add("s16le");
         arguments.Add("-ar");
         arguments.Add("48000");
+        
+        // Apply volume filter if needed
+        if (Math.Abs(volumeMultiplier - 1.0f) > 0.01f) // Only apply if significantly different from 1.0
+        {
+            arguments.Add("-af");
+            arguments.Add($"volume={volumeMultiplier}");
+            _logger.LogDebug("Applied volume filter: {Volume}x", volumeMultiplier);
+        }
         
         // Buffering and streaming optimizations
         arguments.Add("-fflags");
