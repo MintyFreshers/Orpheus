@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Moq;
+using NetCord.Gateway;
 using Orpheus.Services;
 
 namespace Orpheus.Tests.Services;
@@ -85,6 +86,44 @@ public class MessageUpdateServiceTests
     {
         // Act & Assert
         var exception = Record.Exception(() => _service.RemoveInteraction(interactionId));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task RegisterMessageForSongUpdatesAsync_WithValidParameters_DoesNotThrow()
+    {
+        // Arrange
+        const ulong messageId = 123456789UL;
+        const ulong channelId = 987654321UL;
+        var mockClient = new Mock<GatewayClient>();
+        const string songId = "test-song-id";
+        const string originalMessage = "✅ Added **Found: test song** to queue and starting playback!";
+
+        // Act & Assert - should not throw with valid parameters
+        var exception = await Record.ExceptionAsync(async () =>
+            await _service.RegisterMessageForSongUpdatesAsync(messageId, channelId, mockClient.Object, songId, originalMessage));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task SendSongTitleUpdateAsync_WithRegisteredMessage_DoesNotThrow()
+    {
+        // Arrange
+        const ulong messageId = 123456789UL;
+        const ulong channelId = 987654321UL;
+        var mockClient = new Mock<GatewayClient>();
+        const string songId = "test-song-id";
+        const string originalMessage = "✅ Added **Found: test song** to queue and starting playback!";
+        const string actualTitle = "Real Song Title";
+
+        // First register a message for updates
+        await _service.RegisterMessageForSongUpdatesAsync(messageId, channelId, mockClient.Object, songId, originalMessage);
+
+        // Act & Assert - should not throw when sending update
+        var exception = await Record.ExceptionAsync(async () =>
+            await _service.SendSongTitleUpdateAsync(songId, actualTitle));
 
         Assert.Null(exception);
     }
