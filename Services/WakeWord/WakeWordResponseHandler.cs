@@ -20,11 +20,11 @@ public class WakeWordResponseHandler
     private const int TranscriptionTimeoutMs = 8000;
     private const int FrameLengthMs = 20;
     private const int DiscordFrameSize = DiscordSampleRate / 1000 * FrameLengthMs;
-    private const int AudioBufferDurationMs = 1000;
+    private const int AudioBufferDurationMs = 3000; // Increased from 1000ms to capture longer commands
     private const int MaxBufferedFrames = AudioBufferDurationMs / FrameLengthMs;
-    private const int SilenceDetectionMs = 800; // Reduced from 1500ms to 800ms for faster response
+    private const int SilenceDetectionMs = 2000; // Increased to 2000ms to allow for natural pauses between wake word and command
     private const int SilenceFrameThreshold = SilenceDetectionMs / FrameLengthMs;
-    private const short SilenceThreshold = 300; // Reduced from 400 to be more sensitive to speech endings
+    private const short SilenceThreshold = 400; // Restored from 300 to 400 for more reliable silence detection
 
     private readonly ILogger<WakeWordResponseHandler> _logger;
     private readonly BotConfiguration _discordConfiguration;
@@ -134,11 +134,15 @@ public class WakeWordResponseHandler
             if (_activeSessions.TryGetValue(userId, out var session))
             {
                 var pcmAudioData = ConvertOpusFrameToPcmBytes(opusFrame);
+                var previousAudioSize = session.AudioData.Count;
                 session.AudioData.AddRange(pcmAudioData);
+                
+                _logger.LogDebug("Added {FrameSize} bytes of audio to session for user {UserId} (total: {TotalSize} bytes)", 
+                    pcmAudioData.Length, userId, session.AudioData.Count);
 
                 if (DetectSilenceInAudioFrame(pcmAudioData, userId))
                 {
-                    _logger.LogInformation("Silence detected for user {UserId}, completing transcription session", userId);
+                    _logger.LogInformation("Silence detected for user {UserId}, completing transcription session with {TotalAudioSize} bytes of audio", userId, session.AudioData.Count);
                     
                     // Cancel the timeout since we're completing due to silence
                     if (_sessionTimeoutCancellations.TryRemove(userId, out var cancellationSource))
@@ -153,6 +157,10 @@ public class WakeWordResponseHandler
                 {
                     _silenceFrameCounts[userId] = 0;
                 }
+            }
+            else
+            {
+                // No active session - this is expected when not transcribing
             }
         }
         catch (Exception ex)
@@ -296,14 +304,18 @@ public class WakeWordResponseHandler
     private async Task ProcessCollectedAudioAsync(UserTranscriptionSession session)
     {
         var audioBytes = session.AudioData.ToArray();
+        _logger.LogInformation("Processing {AudioSize} bytes of collected audio for transcription for user {UserId}", audioBytes.Length, session.UserId);
+        
         var transcription = await _transcriptionService.TranscribeAudioAsync(audioBytes);
 
         if (!string.IsNullOrEmpty(transcription))
         {
+            _logger.LogInformation("Transcription successful for user {UserId}: '{Transcription}' ({AudioSize} bytes)", session.UserId, transcription, audioBytes.Length);
             await ProcessSuccessfulTranscriptionAsync(session, transcription);
         }
         else
         {
+            _logger.LogWarning("Transcription returned empty result for user {UserId} with {AudioSize} bytes of audio", session.UserId, audioBytes.Length);
             await SendNoTranscriptionResponseAsync(session);
         }
     }
