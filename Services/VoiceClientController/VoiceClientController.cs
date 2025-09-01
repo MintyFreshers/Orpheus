@@ -198,6 +198,66 @@ public class VoiceClientController : IVoiceClientController
         }
     }
 
+    public async Task<string> PlayOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath)
+    {
+        _logger.LogDebug("PlayOverlayMp3Async called with guild: {GuildId}, user: {UserId}, file: {FilePath}", guild.Id, userId, filePath);
+        
+        if (!IsBotInVoiceChannel(guild, client.Id) || _voiceClient == null)
+        {
+            _logger.LogDebug("Bot not in voice channel for overlay, skipping overlay sound");
+            return "Bot not in voice channel - overlay sound skipped";
+        }
+
+        if (!File.Exists(filePath))
+        {
+            _logger.LogWarning("Requested overlay MP3 file not found: {FilePath}", filePath);
+            return $"Overlay file not found: {filePath}";
+        }
+
+        _logger.LogDebug("File exists for overlay, checking file size...");
+        var fileInfo = new FileInfo(filePath);
+        _logger.LogDebug("Overlay file size: {FileSize} bytes", fileInfo.Length);
+
+        if (fileInfo.Length == 0)
+        {
+            _logger.LogWarning("Overlay MP3 file is empty: {FilePath}", filePath);
+            return $"Overlay file is empty: {filePath}";
+        }
+
+        try
+        {
+            _logger.LogDebug("Creating opus output stream for overlay...");
+            var outputStream = CreateOpusOutputStream();
+            _logger.LogDebug("Opus output stream created successfully for overlay");
+            
+            _logger.LogDebug("Starting overlay audio playback task...");
+            // Start overlay playback as a fire-and-forget task with high priority
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Set highest priority for overlay sounds to ensure they play immediately
+                    Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+                    _logger.LogDebug("Overlay audio playbook task started with AboveNormal priority");
+                    await _audioPlaybackService.PlayOverlayMp3Async(filePath, outputStream);
+                    _logger.LogDebug("Overlay audio playback task completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Overlay audio playback task failed for file: {FilePath}", filePath);
+                }
+            }, CancellationToken.None);
+
+            _logger.LogInformation("Started overlay playback of file: {FilePath}", filePath);
+            return "Playing overlay MP3 file!";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to play overlay MP3 file: {FilePath}", filePath);
+            return $"Failed to play overlay MP3: {ex.Message}";
+        }
+    }
+
     public async Task<string> StopPlaybackAsync()
     {
         try

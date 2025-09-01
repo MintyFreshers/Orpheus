@@ -83,6 +83,70 @@ public class AudioPlaybackService : IAudioPlaybackService
         }, cancellationToken);
     }
 
+    public async Task PlayOverlayMp3Async(string filePath, OpusEncodeStream outputStream, CancellationToken cancellationToken = default)
+    {
+        // Don't stop current playback for overlay sounds - just play on top
+        _logger.LogDebug("Starting overlay playback for file: {FilePath}", filePath);
+
+        await Task.Run(async () =>
+        {
+            // Set high priority for audio streaming thread
+            try
+            {
+                Thread.CurrentThread.Priority = ThreadPriority.AboveNormal; // Higher priority for overlay sounds
+                _logger.LogDebug("Set overlay audio streaming thread priority to AboveNormal");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to set overlay streaming thread priority");
+            }
+
+            _logger.LogDebug("Preparing to start FFMPEG for overlay file: {FilePath}", filePath);
+
+            var startInfo = CreateFfmpegProcessStartInfo(filePath);
+
+            try
+            {
+                var ffmpeg = new Process { StartInfo = startInfo };
+                ffmpeg.Start();
+                SetProcessPriority(ffmpeg);
+
+                _logger.LogInformation("FFMPEG process started for overlay file: {FilePath}", filePath);
+
+                var stderrTask = ffmpeg.StandardError.ReadToEndAsync();
+
+                // Use smaller buffer size for overlay audio to reduce latency
+                var bufferSize = 16384;
+                await ffmpeg.StandardOutput.BaseStream.CopyToAsync(outputStream, bufferSize, cancellationToken);
+                await outputStream.FlushAsync(cancellationToken);
+
+                _logger.LogInformation("Finished streaming overlay audio for file: {FilePath}", filePath);
+
+                await ffmpeg.WaitForExitAsync(cancellationToken);
+
+                var stderr = await stderrTask;
+                if (!string.IsNullOrWhiteSpace(stderr))
+                {
+                    _logger.LogWarning("FFMPEG stderr for overlay file {FilePath}: {Stderr}", filePath, stderr);
+                }
+
+                if (ffmpeg.ExitCode != 0)
+                {
+                    _logger.LogWarning("FFMPEG exited with non-zero code {ExitCode} for overlay file: {FilePath}", ffmpeg.ExitCode, filePath);
+                }
+                else
+                {
+                    _logger.LogDebug("FFMPEG overlay completed successfully for file: {FilePath}", filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while streaming overlay audio for file: {FilePath}", filePath);
+                throw;
+            }
+        }, cancellationToken);
+    }
+
     public Task StopPlaybackAsync()
     {
         lock (_lock)

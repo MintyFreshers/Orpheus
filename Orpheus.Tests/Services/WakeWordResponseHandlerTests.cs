@@ -57,14 +57,14 @@ public class WakeWordResponseHandlerTests
     public void WakeWordAcknowledgmentFile_HasValidSize()
     {
         // Arrange
-        const string acknowledgmentPath = "Resources/wake_acknowledgment.mp3";
+        const string acknowledgmentPath = "Resources/wake_acknowledgment_loud.mp3";
         
         // Act
         var fileInfo = new FileInfo(acknowledgmentPath);
         
         // Assert
         Assert.True(fileInfo.Length > 0, "Wake word acknowledgment file should not be empty");
-        Assert.True(fileInfo.Length < 10000, "Wake word acknowledgment file should be small (under 10KB for quick playback)");
+        Assert.True(fileInfo.Length < 100000, "Wake word acknowledgment file should be small (under 100KB for quick playback)");
     }
 
     [Fact]

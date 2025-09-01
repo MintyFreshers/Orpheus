@@ -88,7 +88,7 @@ public class WakeWordResponseHandler
     {
         try
         {
-            const string acknowledgmentPath = "Resources/wake_acknowledgment.mp3";
+            const string acknowledgmentPath = "Resources/wake_acknowledgment_loud.mp3";
             
             if (!File.Exists(acknowledgmentPath))
             {
@@ -108,13 +108,13 @@ public class WakeWordResponseHandler
 
             _logger.LogDebug("Playing wake word acknowledgment sound for user {UserId}", userId);
             
-            // Play the acknowledgment sound - don't await to avoid blocking transcription start
+            // Play the acknowledgment sound using overlay method - don't await to avoid blocking transcription start
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
-                    await voiceClientController.PlayMp3Async(guild, client, userId, acknowledgmentPath);
+                    await voiceClientController.PlayOverlayMp3Async(guild, client, userId, acknowledgmentPath);
                     _logger.LogDebug("Wake word acknowledgment sound completed for user {UserId}", userId);
                 }
                 catch (Exception ex)
