@@ -86,6 +86,11 @@ public class AudioPlaybackService : IAudioPlaybackService
 
     public async Task PlayOverlayMp3Async(string filePath, OpusEncodeStream outputStream, CancellationToken cancellationToken = default)
     {
+        await PlayOverlayMp3Async(filePath, outputStream, 1.0f, cancellationToken);
+    }
+
+    public async Task PlayOverlayMp3Async(string filePath, OpusEncodeStream outputStream, float volumeMultiplier, CancellationToken cancellationToken = default)
+    {
         // Don't stop current playback for overlay sounds - just play on top
         _logger.LogDebug("Starting overlay playback for file: {FilePath}", filePath);
 
@@ -102,9 +107,9 @@ public class AudioPlaybackService : IAudioPlaybackService
                 _logger.LogWarning(ex, "Failed to set overlay streaming thread priority");
             }
 
-            _logger.LogDebug("Preparing to start FFMPEG for overlay file: {FilePath}", filePath);
+            _logger.LogDebug("Preparing to start FFMPEG for overlay file: {FilePath} with volume: {Volume}x", filePath, volumeMultiplier);
 
-            var startInfo = CreateFfmpegProcessStartInfo(filePath);
+            var startInfo = CreateFfmpegProcessStartInfo(filePath, volumeMultiplier);
 
             try
             {
@@ -150,14 +155,19 @@ public class AudioPlaybackService : IAudioPlaybackService
 
     public async Task PlayDuckedOverlayMp3Async(string filePath, OpusEncodeStream outputStream, CancellationToken cancellationToken = default)
     {
+        await PlayDuckedOverlayMp3Async(filePath, outputStream, 1.0f, cancellationToken);
+    }
+
+    public async Task PlayDuckedOverlayMp3Async(string filePath, OpusEncodeStream outputStream, float volumeMultiplier, CancellationToken cancellationToken = default)
+    {
         // Enable ducking for background music, then play overlay
-        _logger.LogDebug("Starting ducked overlay playback for file: {FilePath}", filePath);
+        _logger.LogDebug("Starting ducked overlay playback for file: {FilePath} with volume: {Volume}x", filePath, volumeMultiplier);
         
         SetDucking(true);
         
         try
         {
-            await PlayOverlayMp3Async(filePath, outputStream, cancellationToken);
+            await PlayOverlayMp3Async(filePath, outputStream, volumeMultiplier, cancellationToken);
         }
         finally
         {
@@ -203,7 +213,7 @@ public class AudioPlaybackService : IAudioPlaybackService
         return Task.CompletedTask;
     }
 
-    private ProcessStartInfo CreateFfmpegProcessStartInfo(string filePath)
+    private ProcessStartInfo CreateFfmpegProcessStartInfo(string filePath, float volumeMultiplier = 1.0f)
     {
         var startInfo = new ProcessStartInfo("ffmpeg")
         {
@@ -235,6 +245,14 @@ public class AudioPlaybackService : IAudioPlaybackService
         arguments.Add("s16le");
         arguments.Add("-ar");
         arguments.Add("48000");
+        
+        // Apply volume filter if needed
+        if (Math.Abs(volumeMultiplier - 1.0f) > 0.01f) // Only apply if significantly different from 1.0
+        {
+            arguments.Add("-af");
+            arguments.Add($"volume={volumeMultiplier}");
+            _logger.LogDebug("Applied volume filter: {Volume}x", volumeMultiplier);
+        }
         
         // Buffering and streaming optimizations
         arguments.Add("-fflags");

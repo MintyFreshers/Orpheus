@@ -41,11 +41,5 @@
 	<None Update="Resources/wake_acknowledgment.mp3">
 		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 	</None>
-	<None Update="Resources/wake_acknowledgment_loud.mp3">
-		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	</None>
-	<None Update="Resources/wake_acknowledgment_very_loud.mp3">
-		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	</None>
   </ItemGroup>
 </Project>

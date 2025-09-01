@@ -260,7 +260,12 @@ public class VoiceClientController : IVoiceClientController
 
     public async Task<string> PlayDuckedOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath)
     {
-        _logger.LogDebug("PlayDuckedOverlayMp3Async called with guild: {GuildId}, user: {UserId}, file: {FilePath}", guild.Id, userId, filePath);
+        return await PlayDuckedOverlayMp3Async(guild, client, userId, filePath, 1.0f);
+    }
+
+    public async Task<string> PlayDuckedOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath, float volumeMultiplier)
+    {
+        _logger.LogDebug("PlayDuckedOverlayMp3Async called with guild: {GuildId}, user: {UserId}, file: {FilePath}, volume: {Volume}x", guild.Id, userId, filePath, volumeMultiplier);
         
         if (!IsBotInVoiceChannel(guild, client.Id) || _voiceClient == null)
         {
@@ -292,7 +297,7 @@ public class VoiceClientController : IVoiceClientController
             
             _logger.LogDebug("Starting ducked overlay audio playback task...");
             // Wait for the ducked overlay to complete to ensure proper timing for transcription
-            await _audioPlaybackService.PlayDuckedOverlayMp3Async(filePath, outputStream);
+            await _audioPlaybackService.PlayDuckedOverlayMp3Async(filePath, outputStream, volumeMultiplier);
             _logger.LogDebug("Ducked overlay audio playback completed successfully");
 
             _logger.LogInformation("Completed ducked overlay playback of file: {FilePath}", filePath);

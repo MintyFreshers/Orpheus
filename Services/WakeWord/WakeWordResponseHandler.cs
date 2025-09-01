@@ -89,7 +89,7 @@ public class WakeWordResponseHandler
     {
         try
         {
-            const string acknowledgmentPath = "Resources/wake_acknowledgment_very_loud.mp3";
+            const string acknowledgmentPath = "Resources/wake_acknowledgment.mp3";
             
             if (!File.Exists(acknowledgmentPath))
             {
@@ -111,8 +111,8 @@ public class WakeWordResponseHandler
             
             var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
             
-            // Play the acknowledgment sound with ducking and WAIT for it to complete
-            await voiceClientController.PlayDuckedOverlayMp3Async(guild, client, userId, acknowledgmentPath);
+            // Play the acknowledgment sound with ducking and WAIT for it to complete (30dB louder = ~32x volume)
+            await voiceClientController.PlayDuckedOverlayMp3Async(guild, client, userId, acknowledgmentPath, 32.0f);
             
             _logger.LogInformation("Wake word acknowledgment sound completed for user {UserId}, ducking remains active for transcription", userId);
         }
@@ -163,17 +163,23 @@ public class WakeWordResponseHandler
     private async Task InitiateTranscriptionSessionWithBufferedAudioAsync(ulong userId, GatewayClient client)
     {
         var session = CreateNewTranscriptionSession(userId, client);
-        ClearUserAudioBuffer(userId);
+        
+        // Don't clear the buffer immediately - preserve any audio that might have been captured
+        // during the beep playback that could be the start of the user's command
+        _logger.LogDebug("Preserving audio buffer for user {UserId} to avoid cutting off speech", userId);
         
         _activeSessions[userId] = session;
         _silenceFrameCounts[userId] = 0;
 
+        // Add a small delay to give the user time to start speaking after the beep completes
+        await Task.Delay(50); // 50ms delay to ensure user can start speaking
+        
         // Create cancellation token source for this session's timeout
         var timeoutCancellation = new CancellationTokenSource();
         _sessionTimeoutCancellations[userId] = timeoutCancellation;
 
         await ScheduleSessionTimeoutAsync(userId, timeoutCancellation.Token);
-        _logger.LogInformation("Started fresh transcription session for user {UserId}", userId);
+        _logger.LogInformation("Started fresh transcription session for user {UserId} with preserved audio buffer", userId);
     }
 
     private void BufferAudioFrame(byte[] opusFrame, ulong userId)
