@@ -102,10 +102,10 @@ public class AzureSpeechTranscriptionService : ITranscriptionService, IDisposabl
             _speechConfig = SpeechConfig.FromSubscription(subscriptionKey, region);
             _speechConfig.SpeechRecognitionLanguage = "en-US";
             
-            // Optimize for voice commands and low latency
+            // Optimize for voice commands and low latency  
             _speechConfig.SetProperty(PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs, "3000");
-            _speechConfig.SetProperty(PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs, "500");
-            _speechConfig.SetProperty(PropertyId.Speech_SegmentationSilenceTimeoutMs, "500");
+            _speechConfig.SetProperty(PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs, "300"); // Reduced from 500ms for faster response
+            _speechConfig.SetProperty(PropertyId.Speech_SegmentationSilenceTimeoutMs, "300"); // Reduced from 500ms for faster response
 
             _isInitialized = true;
         }

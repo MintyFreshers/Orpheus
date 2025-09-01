@@ -22,9 +22,9 @@ public class WakeWordResponseHandler
     private const int DiscordFrameSize = DiscordSampleRate / 1000 * FrameLengthMs;
     private const int AudioBufferDurationMs = 1000;
     private const int MaxBufferedFrames = AudioBufferDurationMs / FrameLengthMs;
-    private const int SilenceDetectionMs = 1500; // Reduced from 2000ms to 1.5s for faster response
+    private const int SilenceDetectionMs = 800; // Reduced from 1500ms to 800ms for faster response
     private const int SilenceFrameThreshold = SilenceDetectionMs / FrameLengthMs;
-    private const short SilenceThreshold = 400; // Reduced from 500 to be more sensitive to low audio
+    private const short SilenceThreshold = 300; // Reduced from 400 to be more sensitive to speech endings
 
     private readonly ILogger<WakeWordResponseHandler> _logger;
     private readonly BotConfiguration _discordConfiguration;
@@ -34,6 +34,7 @@ public class WakeWordResponseHandler
     private readonly IQueuePlaybackService _queuePlaybackService;
     private readonly IYouTubeDownloader _downloader;
     private readonly IMessageUpdateService _messageUpdateService;
+    private readonly IVoiceClientController _voiceClientController;
     private readonly ConcurrentDictionary<ulong, UserTranscriptionSession> _activeSessions = new();
     private readonly ConcurrentDictionary<ulong, Queue<byte[]>> _audioBuffers = new();
     private readonly ConcurrentDictionary<ulong, int> _silenceFrameCounts = new();
@@ -48,7 +49,8 @@ public class WakeWordResponseHandler
         ISongQueueService queueService,
         IQueuePlaybackService queuePlaybackService,
         IYouTubeDownloader downloader,
-        IMessageUpdateService messageUpdateService)
+        IMessageUpdateService messageUpdateService,
+        IVoiceClientController voiceClientController)
     {
         _logger = logger;
         _discordConfiguration = discordConfiguration;
@@ -58,6 +60,7 @@ public class WakeWordResponseHandler
         _queuePlaybackService = queuePlaybackService;
         _downloader = downloader;
         _messageUpdateService = messageUpdateService;
+        _voiceClientController = voiceClientController;
         _opusDecoder = OpusCodecFactory.CreateDecoder(DiscordSampleRate, 1);
     }
 
@@ -71,13 +74,60 @@ public class WakeWordResponseHandler
 
         try
         {
-            _logger.LogInformation("Wake word detected from user {UserId}, starting immediate transcription", userId);
+            _logger.LogInformation("Wake word detected from user {UserId}, playing acknowledgment and starting transcription", userId);
+
+            // Play wake word acknowledgment sound first
+            await PlayWakeWordAcknowledgmentAsync(userId, client);
 
             await InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to handle wake word detection");
+        }
+    }
+
+    private async Task PlayWakeWordAcknowledgmentAsync(ulong userId, GatewayClient client)
+    {
+        try
+        {
+            const string acknowledgmentPath = "Resources/wake_acknowledgment.mp3";
+            
+            if (!File.Exists(acknowledgmentPath))
+            {
+                _logger.LogWarning("Wake word acknowledgment file not found: {Path}", acknowledgmentPath);
+                return;
+            }
+
+            // Get guild context from the client cache to determine where to play the sound
+            var guild = client.Cache.Guilds.Values.FirstOrDefault(g => 
+                g.VoiceStates.ContainsKey(userId) && g.VoiceStates[userId].ChannelId.HasValue);
+                
+            if (guild == null)
+            {
+                _logger.LogDebug("Cannot play wake word acknowledgment: user {UserId} not in voice channel", userId);
+                return;
+            }
+
+            _logger.LogDebug("Playing wake word acknowledgment sound for user {UserId}", userId);
+            
+            // Play the acknowledgment sound - don't await to avoid blocking transcription start
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _voiceClientController.PlayMp3Async(guild, client, userId, acknowledgmentPath);
+                    _logger.LogDebug("Wake word acknowledgment sound completed for user {UserId}", userId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to play wake word acknowledgment for user {UserId}", userId);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in wake word acknowledgment for user {UserId}", userId);
         }
     }
 
