@@ -72,16 +72,19 @@ public class WakeWordResponseHandler
 
         try
         {
-            _logger.LogInformation("Wake word detected from user {UserId}, freezing audio buffer and starting acknowledgment", userId);
+            _logger.LogInformation("Wake word detected from user {UserId}, freezing audio buffer and starting acknowledgment with immediate transcription", userId);
 
             // IMMEDIATELY freeze the current audio buffer to preserve speech that happened right after wake word
             FreezeAudioBufferForUser(userId);
 
-            // Play wake word acknowledgment sound and wait for it to complete
-            await PlayWakeWordAcknowledgmentAsync(userId, client);
+            // Start transcription session immediately (in parallel with acknowledgment sound)
+            var transcriptionTask = InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);
 
-            // Now start transcription with the frozen buffer
-            await InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);
+            // Start playing acknowledgment sound (in parallel with transcription startup)
+            var acknowledgmentTask = PlayWakeWordAcknowledgmentAsync(userId, client);
+
+            // Wait for both to complete
+            await Task.WhenAll(transcriptionTask, acknowledgmentTask);
         }
         catch (Exception ex)
         {
@@ -190,15 +193,14 @@ public class WakeWordResponseHandler
         _activeSessions[userId] = session;
         _silenceFrameCounts[userId] = 0;
 
-        // Add a small delay to give the user time to continue speaking after the beep completes
-        await Task.Delay(50); // 50ms delay to ensure user can start speaking
+        // No delay needed - transcription starts immediately alongside acknowledgment sound
         
         // Create cancellation token source for this session's timeout
         var timeoutCancellation = new CancellationTokenSource();
         _sessionTimeoutCancellations[userId] = timeoutCancellation;
 
         await ScheduleSessionTimeoutAsync(userId, timeoutCancellation.Token);
-        _logger.LogInformation("Started transcription session for user {UserId} with frozen buffered audio included", userId);
+        _logger.LogInformation("Started transcription session for user {UserId} immediately with frozen buffered audio included", userId);
     }
 
     private void BufferAudioFrame(byte[] opusFrame, ulong userId)
