@@ -12,4 +12,5 @@ public interface IAudioPlaybackService
     Task StopPlaybackAsync();
     void SetDucking(bool enabled);
     event Action? PlaybackCompleted;
+    event Action<bool>? OnDuckingChanged;
 }
