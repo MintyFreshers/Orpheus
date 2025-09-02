@@ -258,58 +258,6 @@ public class VoiceClientController : IVoiceClientController
         }
     }
 
-    public async Task<string> PlayDuckedOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath)
-    {
-        return await PlayDuckedOverlayMp3Async(guild, client, userId, filePath, 1.0f);
-    }
-
-    public async Task<string> PlayDuckedOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath, float volumeMultiplier)
-    {
-        _logger.LogDebug("PlayDuckedOverlayMp3Async called with guild: {GuildId}, user: {UserId}, file: {FilePath}, volume: {Volume}x", guild.Id, userId, filePath, volumeMultiplier);
-        
-        if (!IsBotInVoiceChannel(guild, client.Id) || _voiceClient == null)
-        {
-            _logger.LogDebug("Bot not in voice channel for ducked overlay, skipping overlay sound");
-            return "Bot not in voice channel - ducked overlay sound skipped";
-        }
-
-        if (!File.Exists(filePath))
-        {
-            _logger.LogWarning("Requested ducked overlay MP3 file not found: {FilePath}", filePath);
-            return $"Ducked overlay file not found: {filePath}";
-        }
-
-        _logger.LogDebug("File exists for ducked overlay, checking file size...");
-        var fileInfo = new FileInfo(filePath);
-        _logger.LogDebug("Ducked overlay file size: {FileSize} bytes", fileInfo.Length);
-
-        if (fileInfo.Length == 0)
-        {
-            _logger.LogWarning("Ducked overlay MP3 file is empty: {FilePath}", filePath);
-            return $"Ducked overlay file is empty: {filePath}";
-        }
-
-        try
-        {
-            _logger.LogDebug("Creating opus output stream for ducked overlay...");
-            var outputStream = CreateOpusOutputStream();
-            _logger.LogDebug("Opus output stream created successfully for ducked overlay");
-            
-            _logger.LogDebug("Starting ducked overlay audio playback task...");
-            // Wait for the ducked overlay to complete to ensure proper timing for transcription
-            await _audioPlaybackService.PlayDuckedOverlayMp3Async(filePath, outputStream, volumeMultiplier);
-            _logger.LogDebug("Ducked overlay audio playback completed successfully");
-
-            _logger.LogInformation("Completed ducked overlay playback of file: {FilePath}", filePath);
-            return "Ducked overlay MP3 completed!";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to play ducked overlay MP3 file: {FilePath}", filePath);
-            return $"Failed to play ducked overlay MP3: {ex.Message}";
-        }
-    }
-
     public void SetAudioDucking(bool enabled)
     {
         _audioPlaybackService.SetDucking(enabled);

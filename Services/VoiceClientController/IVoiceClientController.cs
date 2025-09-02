@@ -9,8 +9,6 @@ public interface IVoiceClientController
     Task<string> StartEchoingAsync(Guild guild, GatewayClient client, ulong userId);
     Task<string> PlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath);
     Task<string> PlayOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath);
-    Task<string> PlayDuckedOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath);
-    Task<string> PlayDuckedOverlayMp3Async(Guild guild, GatewayClient client, ulong userId, string filePath, float volumeMultiplier);
     Task<string> StopPlaybackAsync();
     void SetAudioDucking(bool enabled);
 }

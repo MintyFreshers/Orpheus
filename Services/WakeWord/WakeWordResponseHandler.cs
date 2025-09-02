@@ -71,54 +71,57 @@ public class WakeWordResponseHandler
 
         try
         {
-            _logger.LogInformation("Wake word detected from user {UserId}, playing acknowledgment and starting transcription", userId);
+            _logger.LogInformation("Wake word detected from user {UserId}, starting transcription with audio ducking", userId);
 
-            // Play wake word acknowledgment sound and wait for it to complete
-            await PlayWakeWordAcknowledgmentAsync(userId, client);
-
-            // Now start transcription with proper timing
+            // Enable audio ducking for background music
+            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+            voiceClientController.SetAudioDucking(true);
+            
+            // Send text acknowledgment to Discord
+            var channelId = _discordConfiguration.DefaultChannelId;
+            var ackMessage = new MessageProperties().WithContent($"🎤 <@{userId}> I'm listening...");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await client.Rest.SendMessageAsync(channelId, ackMessage);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send wake word acknowledgment message");
+                }
+            });
+            
+            // Play acknowledge sound as overlay (doesn't interfere with background music)
+            const string acknowledgeFilePath = "Resources/wake_acknowledgment.mp3";
+            if (File.Exists(acknowledgeFilePath))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await voiceClientController.PlayOverlayMp3Async(client.Cache.Guilds.Values.First(g => 
+                            g.VoiceStates.ContainsKey(userId) && g.VoiceStates[userId].ChannelId != null), 
+                            client, userId, acknowledgeFilePath);
+                        _logger.LogDebug("Wake word acknowledge sound played for user {UserId}", userId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to play wake word acknowledge sound for user {UserId}", userId);
+                    }
+                });
+            }
+            else
+            {
+                _logger.LogWarning("Wake word acknowledge sound file not found: {FilePath}", acknowledgeFilePath);
+            }
+            
+            // Start transcription session
             await InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to handle wake word detection");
-        }
-    }
-
-    private async Task PlayWakeWordAcknowledgmentAsync(ulong userId, GatewayClient client)
-    {
-        try
-        {
-            const string acknowledgmentPath = "Resources/wake_acknowledgment.mp3";
-            
-            if (!File.Exists(acknowledgmentPath))
-            {
-                _logger.LogWarning("Wake word acknowledgment file not found: {Path}", acknowledgmentPath);
-                return;
-            }
-
-            // Get guild context from the client cache to determine where to play the sound
-            var guild = client.Cache.Guilds.Values.FirstOrDefault(g => 
-                g.VoiceStates.ContainsKey(userId) && g.VoiceStates[userId].ChannelId.HasValue);
-                
-            if (guild == null)
-            {
-                _logger.LogDebug("Cannot play wake word acknowledgment: user {UserId} not in voice channel", userId);
-                return;
-            }
-
-            _logger.LogDebug("Playing wake word acknowledgment sound for user {UserId} with ducking", userId);
-            
-            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
-            
-            // Play the acknowledgment sound with ducking and WAIT for it to complete (30dB louder = ~32x volume)
-            await voiceClientController.PlayDuckedOverlayMp3Async(guild, client, userId, acknowledgmentPath, 32.0f);
-            
-            _logger.LogInformation("Wake word acknowledgment sound completed for user {UserId}, ducking remains active for transcription", userId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in wake word acknowledgment for user {UserId}", userId);
         }
     }
 
