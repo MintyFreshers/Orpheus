@@ -11,14 +11,8 @@ public class AudioPlaybackService : IAudioPlaybackService
     private readonly object _lock = new();
     private bool _isDucked = false;
     private const float DuckedVolumeMultiplier = 0.2f; // Reduce to 20% volume when ducked
-    
-    // Track current playback state for dynamic volume changes
-    private string? _currentFilePath;
-    private OpusEncodeStream? _currentOutputStream;
-    private CancellationTokenSource? _currentCancellationTokenSource;
 
     public event Action? PlaybackCompleted;
-    public event Action<bool>? OnDuckingChanged;
 
     public AudioPlaybackService(ILogger<AudioPlaybackService> logger)
     {
@@ -31,14 +25,6 @@ public class AudioPlaybackService : IAudioPlaybackService
         await Task.Delay(100, cancellationToken);
 
         LogResourceUsage("Before FFMPEG start");
-
-        // Store current playback state for dynamic volume changes
-        lock (_lock)
-        {
-            _currentFilePath = filePath;
-            _currentOutputStream = outputStream;
-            _currentCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        }
 
         await Task.Run(async () =>
         {
@@ -85,25 +71,14 @@ public class AudioPlaybackService : IAudioPlaybackService
 
                 // Use larger buffer size for smoother streaming (64KB instead of default 4KB)
                 var bufferSize = 65536;
-                
-                CancellationToken combinedToken;
-                lock (_lock)
-                {
-                    combinedToken = _currentCancellationTokenSource?.Token ?? cancellationToken;
-                }
-                
-                await ffmpeg.StandardOutput.BaseStream.CopyToAsync(outputStream, bufferSize, combinedToken);
-                await outputStream.FlushAsync(combinedToken);
+                await ffmpeg.StandardOutput.BaseStream.CopyToAsync(outputStream, bufferSize, cancellationToken);
+                await outputStream.FlushAsync(cancellationToken);
 
                 _logger.LogInformation("Finished streaming audio for file: {FilePath}", filePath);
 
-                await ffmpeg.WaitForExitAsync(combinedToken);
+                await ffmpeg.WaitForExitAsync(cancellationToken);
 
                 await HandleFfmpegCompletion(ffmpeg, stderrTask, filePath);
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogDebug("Audio playback was cancelled for file: {FilePath}", filePath);
             }
             catch (Exception ex)
             {
@@ -115,7 +90,6 @@ public class AudioPlaybackService : IAudioPlaybackService
                 lock (_lock)
                 {
                     _currentFfmpegProcess = null;
-                    // Keep current state for potential restart, don't clear it here
                 }
                 LogResourceUsage("After FFMPEG playback");
             }
@@ -191,62 +165,6 @@ public class AudioPlaybackService : IAudioPlaybackService
         }, cancellationToken);
     }
 
-    public async Task PlayDuckedOverlayMp3Async(string filePath, OpusEncodeStream outputStream, CancellationToken cancellationToken = default)
-    {
-        await PlayDuckedOverlayMp3Async(filePath, outputStream, 1.0f, cancellationToken);
-    }
-
-    public async Task PlayDuckedOverlayMp3Async(string filePath, OpusEncodeStream outputStream, float volumeMultiplier, CancellationToken cancellationToken = default)
-    {
-        // New approach: Stop background music, play acknowledge sound, then resume background at ducked volume
-        _logger.LogDebug("Starting ducked overlay playback for file: {FilePath} with volume: {Volume}x", filePath, volumeMultiplier);
-        
-        // Step 1: Store current playback state before stopping it
-        string? backgroundFile;
-        OpusEncodeStream? backgroundStream;
-        
-        lock (_lock)
-        {
-            backgroundFile = _currentFilePath;
-            backgroundStream = _currentOutputStream;
-        }
-        
-        // Step 2: Stop background music temporarily
-        if (backgroundFile != null && backgroundStream != null && File.Exists(backgroundFile))
-        {
-            _logger.LogDebug("Temporarily stopping background music for acknowledge sound");
-            await StopPlaybackAsync();
-            await Task.Delay(50); // Brief pause for clean stop
-        }
-        
-        // Step 3: Play acknowledge sound at specified volume
-        _logger.LogDebug("Playing acknowledge sound at {Volume}x volume", volumeMultiplier);
-        await PlayOverlayMp3Async(filePath, outputStream, volumeMultiplier, cancellationToken);
-        
-        // Step 4: Enable ducking for background music
-        SetDucking(true);
-        
-        // Step 5: Resume background music at ducked volume (if there was background music)
-        if (backgroundFile != null && backgroundStream != null && File.Exists(backgroundFile))
-        {
-            _logger.LogDebug("Resuming background music at ducked volume");
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(100); // Brief pause to ensure acknowledge sound completes
-                    await PlayMp3ToStreamAsync(backgroundFile, backgroundStream);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to resume background music after acknowledge sound");
-                }
-            });
-        }
-        
-        _logger.LogDebug("Ducked overlay playback completed for file: {FilePath} (background music will continue at ducked volume)", filePath);
-    }
-
     public void SetDucking(bool enabled)
     {
         lock (_lock)
@@ -255,50 +173,9 @@ public class AudioPlaybackService : IAudioPlaybackService
                 return;
                 
             _isDucked = enabled;
-            _logger.LogInformation("Audio ducking {Status} - background music volume {VolumeDescription}", 
+            _logger.LogInformation("Audio ducking {Status} - new songs will play at {Volume}% volume", 
                 enabled ? "enabled" : "disabled",
-                enabled ? $"reduced to {DuckedVolumeMultiplier * 100:F0}%" : "restored to 100%");
-            
-            // If disabling ducking and there's active background music, restart it at full volume
-            if (!enabled)
-            {
-                _ = Task.Run(async () => await RestoreFullVolumePlaybackAsync());
-            }
-            
-            // Fire the ducking changed event for external listeners
-            OnDuckingChanged?.Invoke(enabled);
-        }
-    }
-
-    private async Task RestoreFullVolumePlaybackAsync()
-    {
-        try
-        {
-            string? currentFile;
-            OpusEncodeStream? currentStream;
-            
-            lock (_lock)
-            {
-                currentFile = _currentFilePath;
-                currentStream = _currentOutputStream;
-            }
-            
-            // Only restart if there's active background music that needs volume restoration
-            if (currentFile != null && currentStream != null && File.Exists(currentFile))
-            {
-                _logger.LogDebug("Restoring background music to full volume for file: {FilePath}", currentFile);
-                
-                // Stop current ducked playback
-                await StopPlaybackAsync();
-                await Task.Delay(100); // Brief pause for clean stop
-                
-                // Resume at full volume
-                await PlayMp3ToStreamAsync(currentFile, currentStream);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error in RestoreFullVolumePlaybackAsync");
+                enabled ? (int)(DuckedVolumeMultiplier * 100) : 100);
         }
     }
 
@@ -306,15 +183,6 @@ public class AudioPlaybackService : IAudioPlaybackService
     {
         lock (_lock)
         {
-            // Cancel current playback
-            _currentCancellationTokenSource?.Cancel();
-            _currentCancellationTokenSource?.Dispose();
-            _currentCancellationTokenSource = null;
-            
-            // Clear current playback state
-            _currentFilePath = null;
-            _currentOutputStream = null;
-            
             if (_currentFfmpegProcess != null && !_currentFfmpegProcess.HasExited)
             {
                 try

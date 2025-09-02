@@ -20,11 +20,11 @@ public class WakeWordResponseHandler
     private const int TranscriptionTimeoutMs = 8000;
     private const int FrameLengthMs = 20;
     private const int DiscordFrameSize = DiscordSampleRate / 1000 * FrameLengthMs;
-    private const int AudioBufferDurationMs = 2000; // Reduced from 3000ms to focus on voice commands only
+    private const int AudioBufferDurationMs = 1000;
     private const int MaxBufferedFrames = AudioBufferDurationMs / FrameLengthMs;
-    private const int SilenceDetectionMs = 2000; // Increased to 2000ms to allow for natural pauses between wake word and command
+    private const int SilenceDetectionMs = 800; // Reduced from 1500ms to 800ms for faster response
     private const int SilenceFrameThreshold = SilenceDetectionMs / FrameLengthMs;
-    private const short SilenceThreshold = 400; // Restored from 300 to 400 for more reliable silence detection
+    private const short SilenceThreshold = 300; // Reduced from 400 to be more sensitive to speech endings
 
     private readonly ILogger<WakeWordResponseHandler> _logger;
     private readonly BotConfiguration _discordConfiguration;
@@ -71,57 +71,33 @@ public class WakeWordResponseHandler
 
         try
         {
-            _logger.LogInformation("Wake word detected from user {UserId}, starting transcription and acknowledgment in parallel", userId);
+            _logger.LogInformation("Wake word detected from user {UserId}, starting transcription with audio ducking", userId);
 
-            // Start transcription session immediately (in parallel with acknowledgment sound)
-            var transcriptionTask = InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);
-
-            // Start playing acknowledgment sound (in parallel with transcription startup)
-            var acknowledgmentTask = PlayWakeWordAcknowledgmentAsync(userId, client);
-
-            // Wait for both to complete
-            await Task.WhenAll(transcriptionTask, acknowledgmentTask);
+            // Enable audio ducking for background music
+            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
+            voiceClientController.SetAudioDucking(true);
+            
+            // Send text acknowledgment to Discord instead of audio (much more reliable)
+            var channelId = _discordConfiguration.DefaultChannelId;
+            var ackMessage = new MessageProperties().WithContent($"🎤 <@{userId}> I'm listening...");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await client.Rest.SendMessageAsync(channelId, ackMessage);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send wake word acknowledgment message");
+                }
+            });
+            
+            // Start transcription session
+            await InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to handle wake word detection");
-        }
-    }
-
-    private async Task PlayWakeWordAcknowledgmentAsync(ulong userId, GatewayClient client)
-    {
-        try
-        {
-            const string acknowledgmentPath = "Resources/wake_acknowledgment.mp3";
-            
-            if (!File.Exists(acknowledgmentPath))
-            {
-                _logger.LogWarning("Wake word acknowledgment file not found: {Path}", acknowledgmentPath);
-                return;
-            }
-
-            // Get guild context from the client cache to determine where to play the sound
-            var guild = client.Cache.Guilds.Values.FirstOrDefault(g => 
-                g.VoiceStates.ContainsKey(userId) && g.VoiceStates[userId].ChannelId.HasValue);
-                
-            if (guild == null)
-            {
-                _logger.LogDebug("Cannot play wake word acknowledgment: user {UserId} not in voice channel", userId);
-                return;
-            }
-
-            _logger.LogDebug("Playing wake word acknowledgment sound for user {UserId} with ducking", userId);
-            
-            var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
-            
-            // Play the acknowledgment sound with ducking and WAIT for it to complete (30dB louder = ~32x volume)
-            await voiceClientController.PlayDuckedOverlayMp3Async(guild, client, userId, acknowledgmentPath, 32.0f);
-            
-            _logger.LogInformation("Wake word acknowledgment sound completed for user {UserId}, ducking remains active for transcription", userId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in wake word acknowledgment for user {UserId}", userId);
         }
     }
 
@@ -134,15 +110,11 @@ public class WakeWordResponseHandler
             if (_activeSessions.TryGetValue(userId, out var session))
             {
                 var pcmAudioData = ConvertOpusFrameToPcmBytes(opusFrame);
-                var previousAudioSize = session.AudioData.Count;
                 session.AudioData.AddRange(pcmAudioData);
-                
-                _logger.LogDebug("Added {FrameSize} bytes of audio to session for user {UserId} (total: {TotalSize} bytes)", 
-                    pcmAudioData.Length, userId, session.AudioData.Count);
 
                 if (DetectSilenceInAudioFrame(pcmAudioData, userId))
                 {
-                    _logger.LogInformation("Silence detected for user {UserId}, completing transcription session with {TotalAudioSize} bytes of audio", userId, session.AudioData.Count);
+                    _logger.LogInformation("Silence detected for user {UserId}, completing transcription session", userId);
                     
                     // Cancel the timeout since we're completing due to silence
                     if (_sessionTimeoutCancellations.TryRemove(userId, out var cancellationSource))
@@ -158,10 +130,6 @@ public class WakeWordResponseHandler
                     _silenceFrameCounts[userId] = 0;
                 }
             }
-            else
-            {
-                // No active session - this is expected when not transcribing
-            }
         }
         catch (Exception ex)
         {
@@ -175,20 +143,22 @@ public class WakeWordResponseHandler
     {
         var session = CreateNewTranscriptionSession(userId, client);
         
-        // Clear the buffer to avoid including ambient conversation from before the wake word
-        // We only want to capture the voice command that comes AFTER the wake word detection
-        ClearUserAudioBuffer(userId);
-        _logger.LogDebug("Cleared audio buffer for user {UserId} - starting fresh transcription session", userId);
+        // Don't clear the buffer immediately - preserve any audio that might have been captured
+        // during the beep playback that could be the start of the user's command
+        _logger.LogDebug("Preserving audio buffer for user {UserId} to avoid cutting off speech", userId);
         
         _activeSessions[userId] = session;
         _silenceFrameCounts[userId] = 0;
 
+        // Add a small delay to give the user time to start speaking after the beep completes
+        await Task.Delay(50); // 50ms delay to ensure user can start speaking
+        
         // Create cancellation token source for this session's timeout
         var timeoutCancellation = new CancellationTokenSource();
         _sessionTimeoutCancellations[userId] = timeoutCancellation;
 
         await ScheduleSessionTimeoutAsync(userId, timeoutCancellation.Token);
-        _logger.LogInformation("Started transcription session for user {UserId} with cleared audio buffer to capture fresh voice command", userId);
+        _logger.LogInformation("Started fresh transcription session for user {UserId} with preserved audio buffer", userId);
     }
 
     private void BufferAudioFrame(byte[] opusFrame, ulong userId)
@@ -288,18 +258,14 @@ public class WakeWordResponseHandler
     private async Task ProcessCollectedAudioAsync(UserTranscriptionSession session)
     {
         var audioBytes = session.AudioData.ToArray();
-        _logger.LogInformation("Processing {AudioSize} bytes of collected audio for transcription for user {UserId}", audioBytes.Length, session.UserId);
-        
         var transcription = await _transcriptionService.TranscribeAudioAsync(audioBytes);
 
         if (!string.IsNullOrEmpty(transcription))
         {
-            _logger.LogInformation("Transcription successful for user {UserId}: '{Transcription}' ({AudioSize} bytes)", session.UserId, transcription, audioBytes.Length);
             await ProcessSuccessfulTranscriptionAsync(session, transcription);
         }
         else
         {
-            _logger.LogWarning("Transcription returned empty result for user {UserId} with {AudioSize} bytes of audio", session.UserId, audioBytes.Length);
             await SendNoTranscriptionResponseAsync(session);
         }
     }
