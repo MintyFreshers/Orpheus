@@ -77,7 +77,7 @@ public class WakeWordResponseHandler
             var voiceClientController = _serviceProvider.GetRequiredService<IVoiceClientController>();
             voiceClientController.SetAudioDucking(true);
             
-            // Send text acknowledgment to Discord instead of audio (much more reliable)
+            // Send text acknowledgment to Discord
             var channelId = _discordConfiguration.DefaultChannelId;
             var ackMessage = new MessageProperties().WithContent($"🎤 <@{userId}> I'm listening...");
             _ = Task.Run(async () =>
@@ -91,6 +91,30 @@ public class WakeWordResponseHandler
                     _logger.LogWarning(ex, "Failed to send wake word acknowledgment message");
                 }
             });
+            
+            // Play acknowledge sound as overlay (doesn't interfere with background music)
+            const string acknowledgeFilePath = "Resources/wake_acknowledgment.mp3";
+            if (File.Exists(acknowledgeFilePath))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await voiceClientController.PlayOverlayMp3Async(client.Cache.Guilds.Values.First(g => 
+                            g.VoiceStates.ContainsKey(userId) && g.VoiceStates[userId].ChannelId != null), 
+                            client, userId, acknowledgeFilePath);
+                        _logger.LogDebug("Wake word acknowledge sound played for user {UserId}", userId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to play wake word acknowledge sound for user {UserId}", userId);
+                    }
+                });
+            }
+            else
+            {
+                _logger.LogWarning("Wake word acknowledge sound file not found: {FilePath}", acknowledgeFilePath);
+            }
             
             // Start transcription session
             await InitiateTranscriptionSessionWithBufferedAudioAsync(userId, client);

@@ -176,6 +176,14 @@ public class AudioPlaybackService : IAudioPlaybackService
             _logger.LogInformation("Audio ducking {Status} - new songs will play at {Volume}% volume", 
                 enabled ? "enabled" : "disabled",
                 enabled ? (int)(DuckedVolumeMultiplier * 100) : 100);
+                
+            // Note: Currently playing audio streams cannot have their volume adjusted at runtime
+            // due to Discord voice client limitations. Only new streams will use the ducked volume.
+            if (enabled && _currentFfmpegProcess != null && !_currentFfmpegProcess.HasExited)
+            {
+                _logger.LogDebug("Audio ducking enabled while audio is currently playing. " +
+                    "Current stream will continue at normal volume. Ducking will apply to new streams.");
+            }
         }
     }
 
