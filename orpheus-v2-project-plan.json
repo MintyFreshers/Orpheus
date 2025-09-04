@@ -1,0 +1,549 @@
+{
+  "name": "Orpheus Discord Bot v2 - Complete Rebuild",
+  "description": "A comprehensive rebuild plan for the Orpheus Discord music bot, designed to provide clear understanding and maintainable architecture",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Foundation Setup",
+      "description": "Establish basic bot framework with essential Discord functionality",
+      "items": [
+        {
+          "title": "Create .NET 8.0 project with dependency injection and configuration",
+          "body": "Initialize complete project foundation:\n- Create solution and project files\n- Set up folder structure (Commands/, Services/, Configuration/)\n- Add Microsoft.Extensions.Hosting and DI packages\n- Create IConfiguration setup with JSON files and environment variables\n- Implement BotConfiguration class with Discord token management\n- Add logging infrastructure with configurable levels\n- Configure project properties and nullable reference types",
+          "labels": ["foundation", "setup", "configuration", "dependency-injection"],
+          "assignees": [],
+          "milestone": "Phase 1 - Foundation"
+        },
+        {
+          "title": "Integrate NetCord Discord library with /ping command",
+          "body": "Setup Discord bot connection with testable command:\n- Add NetCord.Hosting packages\n- Configure Discord gateway client with token\n- Implement basic bot startup and shutdown\n- Create ApplicationCommandModule base structure\n- Implement /ping command with emoji response\n- Test command registration and execution\n- Verify bot permissions and guild integration\n- Add connection status logging and error handling",
+          "labels": ["foundation", "discord", "netcord", "commands"],
+          "assignees": [],
+          "milestone": "Phase 1 - Foundation"
+        },
+        {
+          "title": "Implement comprehensive error handling and logging",
+          "body": "Add robust error handling throughout the application:\n- Create centralized exception handling middleware\n- Add structured logging with correlation IDs\n- Implement user-friendly error messages for Discord\n- Add debug logging for development\n- Create error handling patterns for async operations\n- Add logging for Discord events and command execution",
+          "labels": ["foundation", "error-handling", "logging"],
+          "assignees": [],
+          "milestone": "Phase 1 - Foundation"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Voice Channel Integration with Volume Control",
+      "description": "Add voice channel connection, audio capabilities, and volume control using NAudio",
+      "items": [
+        {
+          "title": "Setup FFmpeg and NAudio integration",
+          "body": "Configure audio processing pipeline with volume control:\n- Add FFmpeg dependency management\n- Integrate NAudio for real-time audio manipulation\n- Create audio format conversion utilities\n- Implement PCM audio streaming with volume control\n- Setup Opus encoding for Discord audio\n- Test audio pipeline with volume adjustment capabilities",
+          "labels": ["audio-core", "ffmpeg", "naudio", "streaming"],
+          "assignees": [],
+          "milestone": "Phase 2 - Voice Integration"
+        },
+        {
+          "title": "Implement voice controller service with join/leave commands",
+          "body": "Create voice channel management with testable commands:\n- Design IVoiceClientController interface\n- Implement voice channel joining/leaving logic\n- Handle voice state changes and user detection\n- Create /join command to connect to user's voice channel\n- Create /leave command to disconnect from voice channel\n- Add validation for user voice state\n- Include helpful error messages and emoji responses\n- Add voice channel validation and error handling",
+          "labels": ["audio-core", "voice-channels", "services", "commands"],
+          "assignees": [],
+          "milestone": "Phase 2 - Voice Integration"
+        },
+        {
+          "title": "Create audio playback service with volume control",
+          "body": "Implement core audio streaming with NAudio volume management:\n- Design IAudioPlaybackService interface\n- Implement file-to-voice streaming with NAudio\n- Add real-time volume control using NAudio\n- Create playback controls (start, stop, volume adjustment)\n- Add per-user volume settings\n- Implement volume normalization and audio quality controls",
+          "labels": ["audio-core", "playback", "services", "naudio"],
+          "assignees": [],
+          "milestone": "Phase 2 - Voice Integration"
+        },
+        {
+          "title": "Add /playtest and /volume commands",
+          "body": "Create test and control commands for audio verification:\n- Implement /playtest with embedded test audio file\n- Test full audio pipeline from file to Discord voice\n- Add /volume command for real-time volume adjustment\n- Create volume display and feedback mechanisms\n- Verify audio quality, timing, and volume control\n- Add error handling for audio and volume issues",
+          "labels": ["audio-core", "commands", "testing", "naudio"],
+          "assignees": [],
+          "milestone": "Phase 2 - Voice Integration"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "YouTube Integration",
+      "description": "Add YouTube download and music playback capabilities",
+      "items": [
+        {
+          "title": "Setup yt-dlp integration",
+          "body": "Configure YouTube downloading:\n- Add YoutubeDLSharp package\n- Create IYouTubeDownloader interface\n- Implement basic YouTube URL download\n- Add error handling for invalid URLs and download failures",
+          "labels": ["music-features", "youtube", "downloading"],
+          "assignees": [],
+          "milestone": "Phase 3 - YouTube Integration"
+        },
+        {
+          "title": "Create YouTube metadata extraction",
+          "body": "Implement video information retrieval:\n- Extract title, duration, and thumbnail from YouTube URLs\n- Handle playlist vs single video detection\n- Add support for YouTube search queries\n- Create QueuedSong model for metadata storage",
+          "labels": ["music-features", "metadata", "models"],
+          "assignees": [],
+          "milestone": "Phase 3 - YouTube Integration"
+        },
+        {
+          "title": "Implement basic /play command",
+          "body": "Create primary music command:\n- Add /play command with URL parameter\n- Integrate YouTube downloading with audio playback\n- Show download progress and song information\n- Handle various YouTube URL formats",
+          "labels": ["music-features", "commands", "integration"],
+          "assignees": [],
+          "milestone": "Phase 3 - YouTube Integration"
+        },
+        {
+          "title": "Add download progress feedback",
+          "body": "Implement user feedback during operations:\n- Show download progress indicators\n- Display song information while downloading\n- Add timeout handling for slow downloads\n- Create responsive Discord message updates",
+          "labels": ["music-features", "user-experience", "feedback"],
+          "assignees": [],
+          "milestone": "Phase 3 - YouTube Integration"
+        },
+        {
+          "title": "Handle YouTube search functionality",
+          "body": "Extend /play to support search terms:\n- Implement YouTube search via yt-dlp\n- Return top search result for non-URL queries\n- Add search result information display\n- Handle search failures gracefully",
+          "labels": ["music-features", "search", "user-experience"],
+          "assignees": [],
+          "milestone": "Phase 3 - YouTube Integration"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Queue Management System",
+      "description": "Implement song queuing and playlist management",
+      "items": [
+        {
+          "title": "Design queue data structure with automatic playback",
+          "body": "Create thread-safe queue management with playback integration:\n- Design ISongQueueService interface\n- Implement concurrent queue operations\n- Add queue events (song added, removed, cleared)\n- Design IQueuePlaybackService interface\n- Implement automatic next song playback\n- Handle queue empty state and completion notifications\n- Test queue operations with playback integration",
+          "labels": ["music-features", "queue-management", "data-structures", "automation"],
+          "assignees": [],
+          "milestone": "Phase 4 - Queue Management"
+        },
+        {
+          "title": "Add /queue display command",
+          "body": "Create queue visualization and information:\n- Display current queue with song information\n- Show currently playing song with progress\n- Add pagination for long queues\n- Include queue statistics and total duration\n- Add queue position and time remaining indicators",
+          "labels": ["music-features", "commands", "user-interface"],
+          "assignees": [],
+          "milestone": "Phase 4 - Queue Management"
+        },
+        {
+          "title": "Implement queue control commands",
+          "body": "Add comprehensive queue navigation and management:\n- Create /skip command to advance queue\n- Add /clearqueue to empty entire queue\n- Implement /playnext to insert song at front of queue\n- Handle skip when no next song exists\n- Add optional skip count parameter\n- Include confirmation prompts for destructive actions\n- Add queue modification notifications and feedback",
+          "labels": ["music-features", "commands", "queue-management"],
+          "assignees": [],
+          "milestone": "Phase 4 - Queue Management"
+        },
+        {
+          "title": "Create queue persistence system",
+          "body": "Implement queue state preservation:\n- Save queue state to JSON file\n- Restore queue on bot restart\n- Handle corruption and migration\n- Add queue backup and recovery\n- Preserve playback position and queue order",
+          "labels": ["music-features", "persistence", "reliability"],
+          "assignees": [],
+          "milestone": "Phase 4 - Queue Management"
+        }
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Performance & Caching",
+      "description": "Optimize performance with caching and background processing",
+      "items": [
+        {
+          "title": "Design MP3 caching system",
+          "body": "Implement intelligent file caching:\n- Design ICacheService interface\n- Create cache storage with size limits\n- Implement LRU cache eviction policy\n- Add cache statistics and monitoring",
+          "labels": ["performance", "caching", "storage"],
+          "assignees": [],
+          "milestone": "Phase 5 - Performance"
+        },
+        {
+          "title": "Implement SQLite cache storage",
+          "body": "Create database-backed cache system:\n- Design cache database schema\n- Implement SQLite cache operations\n- Add cache metadata tracking\n- Include cache health checks",
+          "labels": ["performance", "database", "sqlite"],
+          "assignees": [],
+          "milestone": "Phase 5 - Performance"
+        },
+        {
+          "title": "Add background download service",
+          "body": "Implement asynchronous downloading:\n- Create background download queue\n- Implement concurrent download limits\n- Add download prioritization\n- Handle download failures and retries",
+          "labels": ["performance", "background-processing", "downloading"],
+          "assignees": [],
+          "milestone": "Phase 5 - Performance"
+        },
+        {
+          "title": "Create cache cleanup automation",
+          "body": "Implement automatic cache management:\n- Add scheduled cache cleanup tasks\n- Implement cache size monitoring\n- Create cache health reporting\n- Add manual cache management commands",
+          "labels": ["performance", "automation", "maintenance"],
+          "assignees": [],
+          "milestone": "Phase 5 - Performance"
+        },
+        {
+          "title": "Add /cacheinfo command",
+          "body": "Create cache monitoring interface:\n- Display cache statistics and usage\n- Show cache hit/miss ratios\n- List cached songs and sizes\n- Add cache cleanup controls",
+          "labels": ["performance", "commands", "monitoring"],
+          "assignees": [],
+          "milestone": "Phase 5 - Performance"
+        }
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Voice Commands",
+      "description": "Add voice control capabilities with wake word detection",
+      "items": [
+        {
+          "title": "Setup Picovoice wake word detection",
+          "body": "Implement wake word recognition:\n- Integrate Porcupine wake word detection\n- Configure multiple wake words (Computer, Orpheus, Jarvis)\n- Add wake word sensitivity tuning\n- Handle wake word detection events",
+          "labels": ["voice-commands", "wake-word", "picovoice"],
+          "assignees": [],
+          "milestone": "Phase 6 - Voice Commands"
+        },
+        {
+          "title": "Integrate Azure Speech recognition",
+          "body": "Add speech-to-text capabilities:\n- Setup Azure Cognitive Services Speech\n- Implement real-time speech recognition\n- Add audio format conversion for Azure\n- Handle recognition errors and timeouts",
+          "labels": ["voice-commands", "speech-recognition", "azure"],
+          "assignees": [],
+          "milestone": "Phase 6 - Voice Commands"
+        },
+        {
+          "title": "Create voice command processing",
+          "body": "Implement command interpretation:\n- Parse voice commands into bot actions\n- Map voice commands to existing slash commands\n- Add command parameter extraction from speech\n- Handle ambiguous or unclear commands",
+          "labels": ["voice-commands", "command-processing", "nlp"],
+          "assignees": [],
+          "milestone": "Phase 6 - Voice Commands"
+        },
+        {
+          "title": "Add voice feedback system",
+          "body": "Implement audio response capabilities:\n- Add voice confirmation sounds\n- Create text-to-speech responses\n- Implement wake word acknowledgment\n- Add voice command status feedback",
+          "labels": ["voice-commands", "audio-feedback", "user-experience"],
+          "assignees": [],
+          "milestone": "Phase 6 - Voice Commands"
+        },
+        {
+          "title": "Create voice command configuration",
+          "body": "Add voice feature customization:\n- Configure wake word sensitivity\n- Add voice command enable/disable controls\n- Create voice recognition language settings\n- Add voice command timeout configuration",
+          "labels": ["voice-commands", "configuration", "customization"],
+          "assignees": [],
+          "milestone": "Phase 6 - Voice Commands"
+        }
+      ]
+    },
+    {
+      "phase": 7,
+      "name": "Testing Framework",
+      "description": "Implement comprehensive testing for reliability",
+      "items": [
+        {
+          "title": "Setup xUnit testing framework",
+          "body": "Establish testing infrastructure:\n- Create test project with xUnit\n- Add Moq for mocking dependencies\n- Setup test data and fixtures\n- Configure test runner and coverage",
+          "labels": ["testing", "framework", "xunit"],
+          "assignees": [],
+          "milestone": "Phase 7 - Testing"
+        },
+        {
+          "title": "Create unit tests for core models",
+          "body": "Test fundamental data structures:\n- Test QueuedSong model validation\n- Test configuration classes\n- Test utility functions and helpers\n- Add edge case and error condition tests",
+          "labels": ["testing", "unit-tests", "models"],
+          "assignees": [],
+          "milestone": "Phase 7 - Testing"
+        },
+        {
+          "title": "Add service layer unit tests",
+          "body": "Test business logic services:\n- Mock external dependencies\n- Test queue management operations\n- Test audio playback logic\n- Test download and caching services",
+          "labels": ["testing", "unit-tests", "services"],
+          "assignees": [],
+          "milestone": "Phase 7 - Testing"
+        },
+        {
+          "title": "Create integration tests",
+          "body": "Test component interactions:\n- Test dependency injection setup\n- Test command execution workflows\n- Test audio pipeline integration\n- Test database operations",
+          "labels": ["testing", "integration-tests", "workflows"],
+          "assignees": [],
+          "milestone": "Phase 7 - Testing"
+        },
+        {
+          "title": "Add Discord command tests",
+          "body": "Test slash command functionality:\n- Mock Discord interactions\n- Test command parameter validation\n- Test command response formatting\n- Test error handling in commands",
+          "labels": ["testing", "commands", "discord"],
+          "assignees": [],
+          "milestone": "Phase 7 - Testing"
+        },
+        {
+          "title": "Setup automated test running",
+          "body": "Create test automation:\n- Add test runner scripts\n- Setup test coverage reporting\n- Create test result formatting\n- Add performance test benchmarks",
+          "labels": ["testing", "automation", "ci-cd"],
+          "assignees": [],
+          "milestone": "Phase 7 - Testing"
+        }
+      ]
+    },
+    {
+      "phase": 8,
+      "name": "Documentation & Deployment",
+      "description": "Create comprehensive documentation and deployment automation",
+      "items": [
+        {
+          "title": "Create user documentation",
+          "body": "Write comprehensive user guides:\n- Document all slash commands with examples\n- Create voice command usage guide\n- Add troubleshooting section\n- Include configuration options reference",
+          "labels": ["documentation", "user-guide", "commands"],
+          "assignees": [],
+          "milestone": "Phase 8 - Documentation"
+        },
+        {
+          "title": "Write developer documentation",
+          "body": "Create development guides:\n- Document architecture and design patterns\n- Add service interface documentation\n- Create contribution guidelines\n- Include code style and standards",
+          "labels": ["documentation", "developer-guide", "architecture"],
+          "assignees": [],
+          "milestone": "Phase 8 - Documentation"
+        },
+        {
+          "title": "Create Docker containerization",
+          "body": "Implement containerized deployment:\n- Create optimized Dockerfile\n- Add docker-compose for development\n- Configure volume mounts for persistence\n- Add health checks and monitoring",
+          "labels": ["deployment", "docker", "containerization"],
+          "assignees": [],
+          "milestone": "Phase 8 - Documentation"
+        },
+        {
+          "title": "Setup GitHub Actions CI/CD",
+          "body": "Automate building and testing:\n- Create build and test workflows\n- Add Docker image building\n- Setup automated testing on PRs\n- Add release automation",
+          "labels": ["deployment", "ci-cd", "github-actions"],
+          "assignees": [],
+          "milestone": "Phase 8 - Documentation"
+        },
+        {
+          "title": "Create deployment guides",
+          "body": "Document deployment options:\n- Local development setup\n- Docker deployment guide\n- Cloud hosting instructions\n- Environment configuration guide",
+          "labels": ["documentation", "deployment", "guides"],
+          "assignees": [],
+          "milestone": "Phase 8 - Documentation"
+        }
+      ]
+    },
+    {
+      "phase": 9,
+      "name": "Advanced Features",
+      "description": "Add sophisticated features and optimizations",
+      "items": [
+        {
+          "title": "Implement playlist support",
+          "body": "Add YouTube playlist functionality:\n- Parse YouTube playlist URLs\n- Download playlist metadata\n- Add entire playlists to queue\n- Handle large playlist processing",
+          "labels": ["music-features", "playlists", "youtube"],
+          "assignees": [],
+          "milestone": "Phase 9 - Advanced Features"
+        },
+        {
+          "title": "Add music search and recommendations",
+          "body": "Enhance music discovery:\n- Improve YouTube search algorithms\n- Add related song suggestions\n- Create music history tracking\n- Add user preference learning",
+          "labels": ["music-features", "search", "recommendations"],
+          "assignees": [],
+          "milestone": "Phase 9 - Advanced Features"
+        },
+        {
+          "title": "Create user preference system",
+          "body": "Add personalization features:\n- Track user music preferences\n- Create personal queue histories\n- Add favorite songs lists\n- Implement user-specific settings",
+          "labels": ["advanced-features", "personalization", "user-data"],
+          "assignees": [],
+          "milestone": "Phase 9 - Advanced Features"
+        },
+        {
+          "title": "Add queue shuffle and repeat modes",
+          "body": "Enhance playback controls:\n- Implement queue shuffling\n- Add repeat modes (off, one, all)\n- Create queue manipulation commands\n- Add playback mode status display",
+          "labels": ["music-features", "playback-modes", "queue-management"],
+          "assignees": [],
+          "milestone": "Phase 9 - Advanced Features"
+        },
+        {
+          "title": "Implement advanced audio processing and equalizer",
+          "body": "Add sophisticated audio processing features:\n- Create advanced equalizer with multiple bands\n- Implement audio filters (bass boost, treble, etc.)\n- Add audio quality selection and bitrate control\n- Create audio presets and user-defined profiles\n- Implement audio visualization data export\n- Add advanced volume normalization across tracks",
+          "labels": ["advanced-features", "audio-processing", "equalizer"],
+          "assignees": [],
+          "milestone": "Phase 9 - Advanced Features"
+        }
+      ]
+    },
+    {
+      "phase": 10,
+      "name": "Production Readiness",
+      "description": "Prepare for production deployment with monitoring and optimization",
+      "items": [
+        {
+          "title": "Add comprehensive logging and monitoring",
+          "body": "Implement production monitoring:\n- Add structured logging with correlation IDs\n- Create performance metrics collection\n- Add health check endpoints\n- Implement alerting for critical errors",
+          "labels": ["production", "monitoring", "logging"],
+          "assignees": [],
+          "milestone": "Phase 10 - Production"
+        },
+        {
+          "title": "Implement rate limiting and abuse prevention",
+          "body": "Add protection mechanisms:\n- Implement command rate limiting\n- Add download quota management\n- Create abuse detection and prevention\n- Add user cooldown periods",
+          "labels": ["production", "security", "rate-limiting"],
+          "assignees": [],
+          "milestone": "Phase 10 - Production"
+        },
+        {
+          "title": "Optimize memory and resource usage",
+          "body": "Performance optimization:\n- Profile memory usage patterns\n- Optimize audio buffer management\n- Add resource cleanup automation\n- Implement garbage collection tuning",
+          "labels": ["production", "performance", "optimization"],
+          "assignees": [],
+          "milestone": "Phase 10 - Production"
+        },
+        {
+          "title": "Create backup and recovery systems",
+          "body": "Implement data protection:\n- Add queue state backup automation\n- Create configuration backup\n- Implement disaster recovery procedures\n- Add data migration tools",
+          "labels": ["production", "backup", "disaster-recovery"],
+          "assignees": [],
+          "milestone": "Phase 10 - Production"
+        },
+        {
+          "title": "Setup production deployment automation",
+          "body": "Automate production processes:\n- Create blue-green deployment\n- Add rolling update capabilities\n- Implement automated rollback\n- Add deployment health verification",
+          "labels": ["production", "deployment", "automation"],
+          "assignees": [],
+          "milestone": "Phase 10 - Production"
+        }
+      ]
+    }
+  ],
+  "labels": [
+    {
+      "name": "foundation",
+      "color": "0052cc",
+      "description": "Core infrastructure and basic setup"
+    },
+    {
+      "name": "audio-core",
+      "color": "5319e7",
+      "description": "Voice channels and basic audio functionality"
+    },
+    {
+      "name": "music-features",
+      "color": "d73a4a",
+      "description": "YouTube integration and music playback"
+    },
+    {
+      "name": "voice-commands",
+      "color": "0e8a16",
+      "description": "Wake word detection and speech recognition"
+    },
+    {
+      "name": "performance",
+      "color": "fbca04",
+      "description": "Caching, optimization, and performance improvements"
+    },
+    {
+      "name": "testing",
+      "color": "f9d0c4",
+      "description": "Unit tests, integration tests, and test automation"
+    },
+    {
+      "name": "documentation",
+      "color": "0075ca",
+      "description": "User guides, developer docs, and documentation"
+    },
+    {
+      "name": "deployment",
+      "color": "1d76db",
+      "description": "Docker, CI/CD, and deployment automation"
+    },
+    {
+      "name": "advanced-features",
+      "color": "a2eeef",
+      "description": "Sophisticated features and enhancements"
+    },
+    {
+      "name": "naudio",
+      "color": "ff9f43",
+      "description": "NAudio integration for volume control and audio processing"
+    },
+    {
+      "name": "production",
+      "color": "000000",
+      "description": "Production readiness, monitoring, and reliability"
+    },
+    {
+      "name": "setup",
+      "color": "c2e0c6",
+      "description": "Initial project setup and configuration"
+    },
+    {
+      "name": "commands",
+      "color": "e99695",
+      "description": "Discord slash commands and user interfaces"
+    },
+    {
+      "name": "services",
+      "color": "f1c232",
+      "description": "Service layer and business logic"
+    },
+    {
+      "name": "configuration",
+      "color": "d4c5f9",
+      "description": "Settings, configuration, and environment setup"
+    },
+    {
+      "name": "user-experience",
+      "color": "ff6b6b",
+      "description": "User interface and experience improvements"
+    }
+  ],
+  "milestones": [
+    {
+      "title": "Phase 1 - Foundation",
+      "description": "Basic bot framework with Discord integration and simple commands",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 2 - Voice Integration", 
+      "description": "Voice channel connection, audio playback capabilities, and volume control with NAudio",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 3 - YouTube Integration",
+      "description": "YouTube downloading and music playback functionality", 
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 4 - Queue Management",
+      "description": "Song queuing system with playlist management",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 5 - Performance",
+      "description": "Caching system and performance optimizations",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 6 - Voice Commands", 
+      "description": "Wake word detection and voice control capabilities",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 7 - Testing",
+      "description": "Comprehensive testing framework and test coverage",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 8 - Documentation",
+      "description": "Complete documentation and deployment guides",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 9 - Advanced Features",
+      "description": "Sophisticated features and enhanced functionality",
+      "due_on": null,
+      "state": "open"
+    },
+    {
+      "title": "Phase 10 - Production",
+      "description": "Production readiness with monitoring and optimization",
+      "due_on": null,
+      "state": "open"
+    }
+  ]
+}
