@@ -8,36 +8,22 @@
       "description": "Establish basic bot framework with essential Discord functionality",
       "items": [
         {
-          "title": "Create new .NET 8.0 console application",
-          "body": "Initialize a new .NET 8.0 project with proper structure:\n- Create solution and project files\n- Set up basic folder structure (Commands/, Services/, Configuration/)\n- Configure project properties and nullable reference types\n- Add basic .gitignore and README",
-          "labels": ["foundation", "setup", "dotnet"],
+          "title": "Create .NET 8.0 project with dependency injection and configuration",
+          "body": "Initialize complete project foundation:\n- Create solution and project files\n- Set up folder structure (Commands/, Services/, Configuration/)\n- Add Microsoft.Extensions.Hosting and DI packages\n- Create IConfiguration setup with JSON files and environment variables\n- Implement BotConfiguration class with Discord token management\n- Add logging infrastructure with configurable levels\n- Configure project properties and nullable reference types",
+          "labels": ["foundation", "setup", "configuration", "dependency-injection"],
           "assignees": [],
           "milestone": "Phase 1 - Foundation"
         },
         {
-          "title": "Setup dependency injection and configuration",
-          "body": "Implement clean configuration management:\n- Add Microsoft.Extensions.Hosting and DI packages\n- Create IConfiguration setup with JSON files and environment variables\n- Implement basic BotConfiguration class with Discord token management\n- Add logging infrastructure with configurable levels",
-          "labels": ["foundation", "configuration", "dependency-injection"],
+          "title": "Integrate NetCord Discord library with /ping command",
+          "body": "Setup Discord bot connection with testable command:\n- Add NetCord.Hosting packages\n- Configure Discord gateway client with token\n- Implement basic bot startup and shutdown\n- Create ApplicationCommandModule base structure\n- Implement /ping command with emoji response\n- Test command registration and execution\n- Verify bot permissions and guild integration\n- Add connection status logging and error handling",
+          "labels": ["foundation", "discord", "netcord", "commands"],
           "assignees": [],
           "milestone": "Phase 1 - Foundation"
         },
         {
-          "title": "Integrate NetCord Discord library",
-          "body": "Setup Discord bot connection:\n- Add NetCord.Hosting packages\n- Configure Discord gateway client with token\n- Implement basic bot startup and shutdown\n- Add connection status logging and error handling",
-          "labels": ["foundation", "discord", "netcord"],
-          "assignees": [],
-          "milestone": "Phase 1 - Foundation"
-        },
-        {
-          "title": "Create basic /ping command",
-          "body": "Implement first slash command to verify bot functionality:\n- Create ApplicationCommandModule base structure\n- Implement /ping command with emoji response\n- Test command registration and execution\n- Verify bot permissions and guild integration",
-          "labels": ["foundation", "commands", "testing"],
-          "assignees": [],
-          "milestone": "Phase 1 - Foundation"
-        },
-        {
-          "title": "Add basic error handling and logging",
-          "body": "Implement robust error handling patterns:\n- Create centralized exception handling\n- Add structured logging with different levels\n- Implement user-friendly error messages\n- Add debug logging for development",
+          "title": "Implement comprehensive error handling and logging",
+          "body": "Add robust error handling throughout the application:\n- Create centralized exception handling middleware\n- Add structured logging with correlation IDs\n- Implement user-friendly error messages for Discord\n- Add debug logging for development\n- Create error handling patterns for async operations\n- Add logging for Discord events and command execution",
           "labels": ["foundation", "error-handling", "logging"],
           "assignees": [],
           "milestone": "Phase 1 - Foundation"
@@ -46,41 +32,34 @@
     },
     {
       "phase": 2,
-      "name": "Voice Channel Integration",
-      "description": "Add voice channel connection and basic audio capabilities",
+      "name": "Voice Channel Integration with Volume Control",
+      "description": "Add voice channel connection, audio capabilities, and volume control using NAudio",
       "items": [
         {
-          "title": "Implement voice channel connection service",
-          "body": "Create service for Discord voice operations:\n- Design IVoiceClientController interface\n- Implement basic voice channel joining/leaving\n- Handle voice state changes and user detection\n- Add voice channel validation and error handling",
-          "labels": ["audio-core", "voice-channels", "services"],
+          "title": "Setup FFmpeg and NAudio integration",
+          "body": "Configure audio processing pipeline with volume control:\n- Add FFmpeg dependency management\n- Integrate NAudio for real-time audio manipulation\n- Create audio format conversion utilities\n- Implement PCM audio streaming with volume control\n- Setup Opus encoding for Discord audio\n- Test audio pipeline with volume adjustment capabilities",
+          "labels": ["audio-core", "ffmpeg", "naudio", "streaming"],
           "assignees": [],
           "milestone": "Phase 2 - Voice Integration"
         },
         {
-          "title": "Add /join and /leave commands",
-          "body": "Implement voice channel control commands:\n- Create /join command to connect to user's voice channel\n- Create /leave command to disconnect from voice channel\n- Add validation for user voice state\n- Include helpful error messages and emoji responses",
-          "labels": ["audio-core", "commands", "voice-channels"],
+          "title": "Implement voice controller service with join/leave commands",
+          "body": "Create voice channel management with testable commands:\n- Design IVoiceClientController interface\n- Implement voice channel joining/leaving logic\n- Handle voice state changes and user detection\n- Create /join command to connect to user's voice channel\n- Create /leave command to disconnect from voice channel\n- Add validation for user voice state\n- Include helpful error messages and emoji responses\n- Add voice channel validation and error handling",
+          "labels": ["audio-core", "voice-channels", "services", "commands"],
           "assignees": [],
           "milestone": "Phase 2 - Voice Integration"
         },
         {
-          "title": "Setup FFmpeg integration",
-          "body": "Configure audio processing pipeline:\n- Add FFmpeg dependency management\n- Create audio format conversion utilities\n- Implement basic PCM audio streaming\n- Test audio pipeline with simple sound",
-          "labels": ["audio-core", "ffmpeg", "streaming"],
+          "title": "Create audio playback service with volume control",
+          "body": "Implement core audio streaming with NAudio volume management:\n- Design IAudioPlaybackService interface\n- Implement file-to-voice streaming with NAudio\n- Add real-time volume control using NAudio\n- Create playback controls (start, stop, volume adjustment)\n- Add per-user volume settings\n- Implement volume normalization and audio quality controls",
+          "labels": ["audio-core", "playback", "services", "naudio"],
           "assignees": [],
           "milestone": "Phase 2 - Voice Integration"
         },
         {
-          "title": "Create basic audio playback service",
-          "body": "Implement core audio streaming functionality:\n- Design IAudioPlaybackService interface\n- Create Opus encoding for Discord audio\n- Implement basic file-to-voice streaming\n- Add playback controls (start, stop)",
-          "labels": ["audio-core", "playback", "services"],
-          "assignees": [],
-          "milestone": "Phase 2 - Voice Integration"
-        },
-        {
-          "title": "Add /playtest command",
-          "body": "Create test command for audio verification:\n- Implement /playtest with embedded test audio file\n- Test full audio pipeline from file to Discord voice\n- Verify audio quality and timing\n- Add error handling for audio issues",
-          "labels": ["audio-core", "commands", "testing"],
+          "title": "Add /playtest and /volume commands",
+          "body": "Create test and control commands for audio verification:\n- Implement /playtest with embedded test audio file\n- Test full audio pipeline from file to Discord voice\n- Add /volume command for real-time volume adjustment\n- Create volume display and feedback mechanisms\n- Verify audio quality, timing, and volume control\n- Add error handling for audio and volume issues",
+          "labels": ["audio-core", "commands", "testing", "naudio"],
           "assignees": [],
           "milestone": "Phase 2 - Voice Integration"
         }
@@ -134,43 +113,29 @@
       "description": "Implement song queuing and playlist management",
       "items": [
         {
-          "title": "Design song queue data structure",
-          "body": "Create thread-safe queue management:\n- Design ISongQueueService interface\n- Implement concurrent queue operations\n- Add queue events (song added, removed, cleared)\n- Create queue persistence for bot restarts",
-          "labels": ["music-features", "queue-management", "data-structures"],
+          "title": "Design queue data structure with automatic playback",
+          "body": "Create thread-safe queue management with playback integration:\n- Design ISongQueueService interface\n- Implement concurrent queue operations\n- Add queue events (song added, removed, cleared)\n- Design IQueuePlaybackService interface\n- Implement automatic next song playback\n- Handle queue empty state and completion notifications\n- Test queue operations with playback integration",
+          "labels": ["music-features", "queue-management", "data-structures", "automation"],
           "assignees": [],
           "milestone": "Phase 4 - Queue Management"
         },
         {
-          "title": "Implement automatic queue playback",
-          "body": "Create queue processing service:\n- Design IQueuePlaybackService interface\n- Implement automatic next song playback\n- Handle queue empty state\n- Add queue completion notifications",
-          "labels": ["music-features", "queue-management", "automation"],
-          "assignees": [],
-          "milestone": "Phase 4 - Queue Management"
-        },
-        {
-          "title": "Add /queue command for display",
-          "body": "Create queue visualization command:\n- Display current queue with song information\n- Show currently playing song\n- Add pagination for long queues\n- Include queue statistics and total duration",
+          "title": "Add /queue display command",
+          "body": "Create queue visualization and information:\n- Display current queue with song information\n- Show currently playing song with progress\n- Add pagination for long queues\n- Include queue statistics and total duration\n- Add queue position and time remaining indicators",
           "labels": ["music-features", "commands", "user-interface"],
           "assignees": [],
           "milestone": "Phase 4 - Queue Management"
         },
         {
-          "title": "Implement /skip command",
-          "body": "Add queue navigation controls:\n- Create /skip command to advance queue\n- Handle skip when no next song exists\n- Add optional skip count parameter\n- Show next song information after skip",
-          "labels": ["music-features", "commands", "queue-management"],
-          "assignees": [],
-          "milestone": "Phase 4 - Queue Management"
-        },
-        {
-          "title": "Add /clearqueue and /playnext commands",
-          "body": "Implement additional queue controls:\n- Create /clearqueue to empty entire queue\n- Add /playnext to insert song at front of queue\n- Include confirmation prompts for destructive actions\n- Add queue modification notifications",
+          "title": "Implement queue control commands",
+          "body": "Add comprehensive queue navigation and management:\n- Create /skip command to advance queue\n- Add /clearqueue to empty entire queue\n- Implement /playnext to insert song at front of queue\n- Handle skip when no next song exists\n- Add optional skip count parameter\n- Include confirmation prompts for destructive actions\n- Add queue modification notifications and feedback",
           "labels": ["music-features", "commands", "queue-management"],
           "assignees": [],
           "milestone": "Phase 4 - Queue Management"
         },
         {
           "title": "Create queue persistence system",
-          "body": "Implement queue state preservation:\n- Save queue state to JSON file\n- Restore queue on bot restart\n- Handle corruption and migration\n- Add queue backup and recovery",
+          "body": "Implement queue state preservation:\n- Save queue state to JSON file\n- Restore queue on bot restart\n- Handle corruption and migration\n- Add queue backup and recovery\n- Preserve playback position and queue order",
           "labels": ["music-features", "persistence", "reliability"],
           "assignees": [],
           "milestone": "Phase 4 - Queue Management"
@@ -386,9 +351,9 @@
           "milestone": "Phase 9 - Advanced Features"
         },
         {
-          "title": "Implement volume control and equalizer",
-          "body": "Add audio processing features:\n- Create per-user volume controls\n- Add basic equalizer functionality\n- Implement audio filters\n- Add audio quality selection",
-          "labels": ["advanced-features", "audio-processing", "controls"],
+          "title": "Implement advanced audio processing and equalizer",
+          "body": "Add sophisticated audio processing features:\n- Create advanced equalizer with multiple bands\n- Implement audio filters (bass boost, treble, etc.)\n- Add audio quality selection and bitrate control\n- Create audio presets and user-defined profiles\n- Implement audio visualization data export\n- Add advanced volume normalization across tracks",
+          "labels": ["advanced-features", "audio-processing", "equalizer"],
           "assignees": [],
           "milestone": "Phase 9 - Advanced Features"
         }
@@ -484,6 +449,11 @@
       "description": "Sophisticated features and enhancements"
     },
     {
+      "name": "naudio",
+      "color": "ff9f43",
+      "description": "NAudio integration for volume control and audio processing"
+    },
+    {
       "name": "production",
       "color": "000000",
       "description": "Production readiness, monitoring, and reliability"
@@ -523,7 +493,7 @@
     },
     {
       "title": "Phase 2 - Voice Integration", 
-      "description": "Voice channel connection and basic audio playback capabilities",
+      "description": "Voice channel connection, audio playback capabilities, and volume control with NAudio",
       "due_on": null,
       "state": "open"
     },
